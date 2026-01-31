@@ -3,7 +3,7 @@
 # ==========================================
 # Usamos la versión 2019 para máxima compatibilidad inicial.
 # (Más tarde podrás cambiar esto a: 2022-latest para el Upgrade)
-FROM mcr.microsoft.com/mssql/server:2019-latest
+FROM mcr.microsoft.com/mssql/server:2022-latest
 
 # ==========================================
 # 2. PERMISOS
