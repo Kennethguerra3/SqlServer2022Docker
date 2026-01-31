@@ -1,4 +1,4 @@
-# 1. Imagen Base
+# 1. Imagen Base (SQL Server 2022)
 FROM mcr.microsoft.com/mssql/server:2022-latest
 #FROM mcr.microsoft.com/mssql/server:2019-latest
 
@@ -6,27 +6,23 @@ FROM mcr.microsoft.com/mssql/server:2022-latest
 USER root
 
 # --- CONFIGURACIÓN DE ENTORNO ---
-
-# Licencia y Edición
 ENV ACCEPT_EULA=Y
 ENV MSSQL_PID=Developer
-
-# Zona Horaria (Perú)
 ENV TZ=America/Lima
-
-# Agente SQL (Para tus Jobs)
 ENV MSSQL_AGENT_ENABLED=true
 
 # --- MEJORAS DE ROBUSTEZ ---
-
-# A. Desactivar Dumps para no llenar el disco duro con basura
 ENV MSSQL_ENABLE_COREDUMP=0
-
-# B. Optimización de TCP para la nube (Evita desconexiones de Power BI)
 ENV MSSQL_TCP_KEEPALIVE=30000
 
+# -------------------------------------------------------------------------
+# 🔥 EL FIX CRÍTICO PARA ERROR 10054 (OpenSSL) 🔥
+# Esto baja la seguridad interna del contenedor de Nivel 2 a Nivel 1.
+# Permite que la negociación SSL pase a través del proxy de Railway sin cortarse.
+RUN sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
+# -------------------------------------------------------------------------
+
 # 3. Preparación de Directorios (Blindaje)
-# Creamos carpetas, damos permisos y aseguramos que el dueño sea root
 RUN mkdir -p /var/opt/mssql/data \
     && mkdir -p /var/opt/mssql/log \
     && mkdir -p /var/opt/mssql/secrets \
@@ -34,9 +30,7 @@ RUN mkdir -p /var/opt/mssql/data \
     && chmod -R 777 /var/opt/mssql \
     && chown -R root:root /var/opt/mssql
 
-# 4. HEALTHCHECK (El Monitor de Signos Vitales)
-# Docker intentará hacer un Login cada 15s. Si falla, marca el contenedor como "Unhealthy".
-# Nota: Usamos una consulta simple "SELECT 1" para no cargar el sistema.
+# 4. HEALTHCHECK (Monitor de Signos Vitales)
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1
 
