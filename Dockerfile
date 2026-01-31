@@ -1,34 +1,46 @@
-# 1. Usamos la imagen oficial de SQL Server 2022 (Latest)
+# 1. Imagen Base
 FROM mcr.microsoft.com/mssql/server:2022-latest
 
-# 2. Nos convertimos en Superusuario (Root)
-# OBLIGATORIO en Railway para evitar problemas de permisos con el volumen
+# 2. Permisos Root (Obligatorio en Railway)
 USER root
 
-# --- CONFIGURACIÓN ROBUSTA ---
+# --- CONFIGURACIÓN DE ENTORNO ---
 
-# Aceptamos la licencia
+# Licencia y Edición
 ENV ACCEPT_EULA=Y
-
-# Edición Developer (Gratis y completa, no caduca)
 ENV MSSQL_PID=Developer
 
-# Zona Horaria (Para que los Jobs corran a la hora de Perú, no la de Londres)
+# Zona Horaria (Perú)
 ENV TZ=America/Lima
 
-# 🔥 ACTIVAR EL AGENTE SQL (CRÍTICO PARA JOBS) 🔥
+# Agente SQL (Para tus Jobs)
 ENV MSSQL_AGENT_ENABLED=true
 
-# 3. Preparación de Directorios y Permisos (Blindado)
-# Creamos la estructura completa y damos permisos al usuario root
+# --- MEJORAS DE ROBUSTEZ ---
+
+# A. Desactivar Dumps para no llenar el disco duro con basura
+ENV MSSQL_ENABLE_COREDUMP=0
+
+# B. Optimización de TCP para la nube (Evita desconexiones de Power BI)
+ENV MSSQL_TCP_KEEPALIVE=30000
+
+# 3. Preparación de Directorios (Blindaje)
+# Creamos carpetas, damos permisos y aseguramos que el dueño sea root
 RUN mkdir -p /var/opt/mssql/data \
     && mkdir -p /var/opt/mssql/log \
     && mkdir -p /var/opt/mssql/secrets \
+    && mkdir -p /var/opt/mssql/backup \
     && chmod -R 777 /var/opt/mssql \
     && chown -R root:root /var/opt/mssql
 
-# 4. Exponemos el puerto
+# 4. HEALTHCHECK (El Monitor de Signos Vitales)
+# Docker intentará hacer un Login cada 15s. Si falla, marca el contenedor como "Unhealthy".
+# Nota: Usamos una consulta simple "SELECT 1" para no cargar el sistema.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1
+
+# 5. Puerto
 EXPOSE 1433
 
-# 5. Comando de inicio
+# 6. Inicio
 CMD ["/opt/mssql/bin/sqlservr"]
