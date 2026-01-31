@@ -1,93 +1,58 @@
-# 1. Imagen Base
-
-#FROM mcr.microsoft.com/mssql/server:2022-latest
-
+# ==========================================
+# 1. IMAGEN BASE
+# ==========================================
+# Usamos la versión 2019 para máxima compatibilidad inicial.
+# (Más tarde podrás cambiar esto a: 2022-latest para el Upgrade)
 FROM mcr.microsoft.com/mssql/server:2019-latest
 
-
-
-# 2. Permisos Root (Obligatorio en Railway)
-
+# ==========================================
+# 2. PERMISOS
+# ==========================================
+# Elevamos a Root para poder manipular el sistema de archivos de Railway
 USER root
 
-
-
-# --- CONFIGURACIÓN DE ENTORNO ---
-
-
-
-# Licencia y Edición
-
+# ==========================================
+# 3. VARIABLES DE ENTORNO (CONFIGURACIÓN)
+# ==========================================
+# Aceptación de licencia y Edición Developer (Gratis y completa)
 ENV ACCEPT_EULA=Y
-
 ENV MSSQL_PID=Developer
 
-
-
 # Zona Horaria (Perú)
-
 ENV TZ=America/Lima
 
-
-
-# Agente SQL (Para tus Jobs)
-
+# Activar el Agente SQL (Vital para tus Jobs programados)
 ENV MSSQL_AGENT_ENABLED=true
 
-
-
-# --- MEJORAS DE ROBUSTEZ ---
-
-
-
-# A. Desactivar Dumps para no llenar el disco duro con basura
-
+# ==========================================
+# 4. VARIABLES DE ENTORNO (ROBUSTEZ)
+# ==========================================
+# Evita generar archivos de error gigantes que llenan el disco
 ENV MSSQL_ENABLE_COREDUMP=0
 
-
-
-# B. Optimización de TCP para la nube (Evita desconexiones de Power BI)
-
+# Optimización de red para evitar cortes en la nube (Power BI / SSMS)
 ENV MSSQL_TCP_KEEPALIVE=30000
 
-
-
-# 3. Preparación de Directorios (Blindaje)
-
-# Creamos carpetas, damos permisos y aseguramos que el dueño sea root
-
+# ==========================================
+# 5. SISTEMA DE ARCHIVOS
+# ==========================================
+# Creamos la estructura de directorios blindada y asignamos permisos
 RUN mkdir -p /var/opt/mssql/data \
-
     && mkdir -p /var/opt/mssql/log \
-
     && mkdir -p /var/opt/mssql/secrets \
-
     && mkdir -p /var/opt/mssql/backup \
-
     && chmod -R 777 /var/opt/mssql \
-
     && chown -R root:root /var/opt/mssql
 
-
-
-# 4. HEALTHCHECK (El Monitor de Signos Vitales)
-
-# Docker intentará hacer un Login cada 15s. Si falla, marca el contenedor como "Unhealthy".
-
-# Nota: Usamos una consulta simple "SELECT 1" para no cargar el sistema.
-
+# ==========================================
+# 6. HEALTHCHECK (MONITOREO)
+# ==========================================
+# Verifica cada 15s que el servidor responda. Si falla 3 veces, reinicia.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-
     CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1
 
-
-
-# 5. Puerto
-
+# ==========================================
+# 7. ARRANQUE
+# ==========================================
 EXPOSE 1433
-
-
-
-# 6. Inicio
-
 CMD ["/opt/mssql/bin/sqlservr"]
