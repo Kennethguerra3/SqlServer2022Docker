@@ -1,5 +1,6 @@
 # 1. Imagen Base
 FROM mcr.microsoft.com/mssql/server:2022-latest
+#FROM mcr.microsoft.com/mssql/server:2019-latest
 
 # 2. Permisos Root (Obligatorio en Railway)
 USER root
