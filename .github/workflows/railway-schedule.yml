@@ -1,0 +1,62 @@
+name: Schedule SQL Server
+
+on:
+  schedule:
+    # Horas en UTC. (Perú es UTC-5)
+    # 03:00 AM PE -> 08:00 UTC (Start)
+    # 04:00 AM PE -> 09:00 UTC (Stop)
+    # 06:00 AM PE -> 11:00 UTC (Start)
+    # 07:00 AM PE -> 12:00 UTC (Stop)
+    # 11:20 PM PE -> 04:20 UTC (Next Day) (Start)
+    # 12:20 AM PE -> 05:20 UTC (Stop)
+    
+    # Cron format: "min hour * * *"
+    - cron: '0 8 * * *'  # Start 03:00 AM PE
+    - cron: '0 9 * * *'  # Stop 04:00 AM PE
+    - cron: '0 11 * * *' # Start 06:00 AM PE
+    - cron: '0 12 * * *' # Stop 07:00 AM PE
+    - cron: '20 4 * * *' # Start 11:20 PM PE (04:20 UTC)
+    - cron: '20 5 * * *' # Stop 12:20 AM PE (05:20 UTC) - Assumed 1 hour duration
+
+  workflow_dispatch: # Permite ejecución manual desde GitHub Web
+
+jobs:
+  manage-sql-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Determine Action based on Time
+        id: action
+        shell: pwsh
+        run: |
+          # Lógica simple para determinar si es Start o Stop basado en la hora actual si se dispara por CRON
+          # O simplemente ejecuta el script control.ps1 pasando el parámetro.
+          # Pero CRON dispara todos a la vez. Necesitamos discriminar cuál CRON disparó?
+          # GitHub no dice fácilmente "qué cron disparó".
+          # Mejor Aproximación: Chequear la hora actual.
+          
+          $Time = (Get-Date).ToUniversalTime()
+          $Hour = $Time.Hour
+          $Minute = $Time.Minute
+          
+          # Huso horario UTC
+          # Start times: 08, 11, 04
+          # Stop times: 09, 12, 05
+          
+          if ($Hour -eq 8 -or $Hour -eq 11 -or $Hour -eq 4) {
+             echo "ACTION=Start" >> $env:GITHUB_ENV
+          } else {
+             echo "ACTION=Stop" >> $env:GITHUB_ENV
+          }
+          
+          Write-Host "Current UTC Hour: $Hour. Decision: $env:ACTION"
+
+      - name: Run Control Script
+        shell: pwsh
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+        run: |
+          ./scripts/railway_control.ps1 -Action $env:ACTION
