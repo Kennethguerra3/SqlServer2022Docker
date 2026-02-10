@@ -36,14 +36,11 @@ $SecretsFile = Join-Path $PSScriptRoot "railway_secrets.ps1"
 if (Test-Path $SecretsFile) {
     . $SecretsFile
     Write-Host "Cargando credenciales desde archivo local..." -ForegroundColor Gray
-} else {
-    $LocalToken = $null
-    $LocalServiceId = $null
 }
 
-# 1. Determinar Credenciales (Prioridad: Param -> Env Var -> Local Variable)
-$FinalToken = if ($Token) { $Token } elseif ($env:RAILWAY_TOKEN) { $env:RAILWAY_TOKEN } else { $LocalToken }
-$FinalServiceId = if ($ServiceId) { $ServiceId } elseif ($env:RAILWAY_SERVICE_ID) { $env:RAILWAY_SERVICE_ID } else { $LocalServiceId }
+# 1. Determinar Credenciales (Prioridad: Param -> Env Var)
+$FinalToken = if ($Token) { $Token } else { $env:RAILWAY_TOKEN }
+$FinalServiceId = if ($ServiceId) { $ServiceId } else { $env:RAILWAY_SERVICE_ID }
 
 # Validar que tengamos credenciales
 if ([string]::IsNullOrWhiteSpace($FinalToken)) {
@@ -86,16 +83,23 @@ function Invoke-RailwayGraphQL {
     }
 }
 
-# 3. Obtener Environment ID (Automático)
+# 3. Obtener Environment ID (Simplificado para evitar errores 400)
 Write-Host "Conectando a Railway..." -ForegroundColor Cyan
 
+# Query simplificada que sabemos que funciona con Project Tokens
+# "service" devuelve el servicio y sus entornos.
+# Asumimos que el entorno "production" es el que queremos (o el primero disponible).
 $EnvQuery = @"
 query GetServiceEnv(`$id: String!) {
   service(id: `$id) {
     name
-    environments {
-      id
-      name
+    serviceInstances {
+      edges {
+        node {
+          id
+          environmentId
+        }
+      }
     }
   }
 }
@@ -103,12 +107,17 @@ query GetServiceEnv(`$id: String!) {
 
 try {
     $ServiceData = Invoke-RailwayGraphQL -Query $EnvQuery -Variables @{ id = $FinalServiceId }
-    $EnvId = $ServiceData.service.environments[0].id # Usamos el primer entorno (usualmente Production)
+    
+    # Extraer el Environment ID de la primera instancia de servicio activa
+    $InstanceNode = $ServiceData.service.serviceInstances.edges[0].node
+    $EnvId = $InstanceNode.environmentId
     $ServiceName = $ServiceData.service.name
-    Write-Host "Servicio detectado: $ServiceName ($($ServiceData.service.environments[0].name))" -ForegroundColor Green
+    
+    Write-Host "Servicio detectado: $ServiceName (Env: $EnvId)" -ForegroundColor Green
 }
 catch {
-    Write-Host "No se pudo obtener información del servicio. Verifica el Service ID y el Token." -ForegroundColor Red
+    Write-Host "No se pudo obtener información del servicio." -ForegroundColor Red
+    Write-Host "Detalle: $($_.Exception.Message)"
     exit 1
 }
 
