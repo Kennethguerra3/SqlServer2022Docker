@@ -69,7 +69,7 @@ Para activar este horario, debes guardar tus claves en GitHub:
 
 ---
 
-## ⚠️ Solución de Problemas常见
+## ⚠️ Solución de Problemas
 
 ### Error "Not Authenticated" o "400 Bad Request"
 *   Verifica que el Token en `railway_secrets.ps1` (PC) o en GitHub Secrets sea correcto.

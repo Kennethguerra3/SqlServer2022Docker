@@ -18,7 +18,17 @@ on:
     - cron: '20 4 * * *' # Start 11:20 PM PE (04:20 UTC)
     - cron: '20 5 * * *' # Stop 12:20 AM PE (05:20 UTC) - Assumed 1 hour duration
 
-  workflow_dispatch: # Permite ejecución manual desde GitHub Web
+  workflow_dispatch:
+    inputs:
+      manual_action:
+        description: 'Acción manual (Start/Stop)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - Start
+          - Stop
 
 jobs:
   manage-sql-server:
@@ -27,31 +37,33 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Determine Action based on Time
+      - name: Determine Action
         id: action
         shell: pwsh
         run: |
-          # Lógica simple para determinar si es Start o Stop basado en la hora actual si se dispara por CRON
-          # O simplemente ejecuta el script control.ps1 pasando el parámetro.
-          # Pero CRON dispara todos a la vez. Necesitamos discriminar cuál CRON disparó?
-          # GitHub no dice fácilmente "qué cron disparó".
-          # Mejor Aproximación: Chequear la hora actual.
+          # 1. Prioridad: Acción manual desde la UI de GitHub
+          $ManualAction = "${{ github.event.inputs.manual_action }}"
           
-          $Time = (Get-Date).ToUniversalTime()
-          $Hour = $Time.Hour
-          $Minute = $Time.Minute
-          
-          # Huso horario UTC
-          # Start times: 08, 11, 04
-          # Stop times: 09, 12, 05
-          
-          if ($Hour -eq 8 -or $Hour -eq 11 -or $Hour -eq 4) {
-             echo "ACTION=Start" >> $env:GITHUB_ENV
+          if ($ManualAction -ne "") {
+             $Action = $ManualAction
+             Write-Host "Usando acción manual: $Action"
           } else {
-             echo "ACTION=Stop" >> $env:GITHUB_ENV
+             # 2. Lógica por horario (UTC)
+             $Time = (Get-Date).ToUniversalTime()
+             $Hour = $Time.Hour
+             $Min = $Time.Minute
+             
+             # Ventanas de encendido (Start)
+             # 08:00 (3am PE), 11:00 (6am PE), 04:20 (11:20pm PE)
+             if (($Hour -eq 8) -or ($Hour -eq 11) -or ($Hour -eq 4)) {
+                $Action = "Start"
+             } else {
+                $Action = "Stop"
+             }
+             Write-Host "Hora UTC detectada: $Hour:$Min. Decisión: $Action"
           }
           
-          Write-Host "Current UTC Hour: $Hour. Decision: $env:ACTION"
+          "ACTION=$Action" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Run Control Script
         shell: pwsh

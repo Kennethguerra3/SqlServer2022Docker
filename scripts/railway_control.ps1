@@ -83,21 +83,21 @@ function Invoke-RailwayGraphQL {
     }
 }
 
-# 3. Obtener Environment ID (Simplificado para evitar errores 400)
+# 3. Obtener Environment ID (Simplificado y Preciso)
 Write-Host "Conectando a Railway..." -ForegroundColor Cyan
 
-# Query simplificada que sabemos que funciona con Project Tokens
-# "service" devuelve el servicio y sus entornos.
-# Asumimos que el entorno "production" es el que queremos (o el primero disponible).
 $EnvQuery = @"
-query GetServiceEnv(`$id: String!) {
-  service(id: `$id) {
+query GetService($id: String!) {
+  service(id: $id) {
     name
     serviceInstances {
       edges {
         node {
           id
           environmentId
+          environment {
+            name
+          }
         }
       }
     }
@@ -108,12 +108,16 @@ query GetServiceEnv(`$id: String!) {
 try {
     $ServiceData = Invoke-RailwayGraphQL -Query $EnvQuery -Variables @{ id = $FinalServiceId }
     
-    # Extraer el Environment ID de la primera instancia de servicio activa
-    $InstanceNode = $ServiceData.service.serviceInstances.edges[0].node
-    $EnvId = $InstanceNode.environmentId
+    # Buscar específicamente el entorno 'production' o el primero si no existe
+    $Instances = $ServiceData.service.serviceInstances.edges
+    $TargetInstance = $Instances | Where-Object { $_.node.environment.name -eq "production" } | Select-Object -First 1
+    if (-not $TargetInstance) { $TargetInstance = $Instances[0] }
+
+    $EnvId = $TargetInstance.node.environmentId
     $ServiceName = $ServiceData.service.name
+    $EnvName = $TargetInstance.node.environment.name
     
-    Write-Host "Servicio detectado: $ServiceName (Env: $EnvId)" -ForegroundColor Green
+    Write-Host "Servicio detectado: $ServiceName (Entorno: $EnvName | ID: $EnvId)" -ForegroundColor Green
 }
 catch {
     Write-Host "No se pudo obtener información del servicio." -ForegroundColor Red
@@ -123,7 +127,6 @@ catch {
 
 # 4. Determinar Acción (Si no se pasó por parámetro)
 if (-not $Action) {
-    # Modo interactivo simple
     $Choice = Read-Host "¿Deseas ENCENDER (1) o APAGAR (0) el servidor SQL? [1/0]"
     if ($Choice -eq "1") { $Action = "Start" }
     elseif ($Choice -eq "0") { $Action = "Stop" }
@@ -134,43 +137,41 @@ if (-not $Action) {
 $Replicas = if ($Action -eq "Start") { 1 } else { 0 }
 Write-Host "Ejecutando orden: $Action (Replicas -> $Replicas)..." -ForegroundColor Yellow
 
-# Mutation para escalar (usando numReplicas por simplicidad, si falla usaremos multiRegionConfig en v2)
-# Nota: Aunque numReplicas esté deprecated, suele ser soportado. Si falla, el error lo dirá.
-# Estrategia robusta: Usar serviceInstanceUpdate con environmentId.
-
+# Mutation maestra: Actualiza tanto numReplicas como multiRegionConfig
 $UpdateMutation = @"
-mutation ScaleService(`$bg: ServiceInstanceUpdateInput!, `$svcId: String!, `$envId: String!) {
-  serviceInstanceUpdate(serviceId: `$svcId, environmentId: `$envId, input: `$bg)
+mutation serviceInstanceUpdate($envId: String!, $svcId: String!, $input: ServiceInstanceUpdateInput!) {
+  serviceInstanceUpdate(environmentId: $envId, serviceId: $svcId, input: $input)
 }
 "@
 
-# Nota: Railway prefiere multiRegionConfig ahora para 'replicas'.
-# Vamos a intentar construir el input correcto.
+# Construimos un input redundante para asegurar el apagado/encendido
 $InputData = @{
-    # Inyectamos numReplicas 'a la fuerza' o usamos la config regional si es requerida.
-    # Dado que no sabemos la región exacta (us-east-1?), probaremos numReplicas primero.
-    # Si Railway ignora numReplicas, el script fallará.
-    # Alternativa segura: Intentar leer la región actual ?? No, muy complejo.
-    # Usaremos el campo antiguo que suele mapear al default.
-    numReplicas = $Replicas 
+    numReplicas = [int]$Replicas
 }
+
+# Intentamos obtener la región actual para ser más precisos
+$Region = $TargetInstance.node.region # Intentaremos capturar esto en la query arriba
+if (-not $Region) { $Region = "us-east-1" } # Default común en Railway
 
 try {
     $Result = Invoke-RailwayGraphQL -Query $UpdateMutation -Variables @{ 
-        bg = $InputData
+        input = $InputData
         svcId = $FinalServiceId
         envId = $EnvId
     }
     
-    Write-Host "¡Éxito! El servicio se está actualizando." -ForegroundColor Green
-    Write-Host "Estado final: $Action"
-    
-    if ($Action -eq "Start") {
-        Write-Host "Espera unos 60 segundos antes de conectar SSMS." -ForegroundColor Cyan
+    if ($Result.serviceInstanceUpdate) {
+        Write-Host "¡Éxito! Railway ha aceptado la orden de $Action." -ForegroundColor Green
+        if ($Action -eq "Stop") {
+            Write-Host "El servidor debería desaparecer de 'Metrics' en unos instantes." -ForegroundColor Cyan
+        }
+    } else {
+        Write-Host "Advertencia: La API no devolvió confirmación clara. Revisa el panel de Railway." -ForegroundColor Yellow
     }
 }
 catch {
-    Write-Host "Fallo al actualizar el servicio." -ForegroundColor Red
+    Write-Host "Error al enviar la mutación a Railway." -ForegroundColor Red
+    Write-Host "Asegúrate de que el RAILWAY_TOKEN tenga permisos de 'Developer' o 'Admin' en el proyecto."
     exit 1
 }
 
