@@ -148,35 +148,33 @@ if (-not $Action) {
 $Replicas = if ($Action -eq "Start") { 1 } else { 0 }
 Write-Host "Ejecutando orden: $Action (Replicas -> $Replicas)..." -ForegroundColor Yellow
 
-# Mutation maestra: Usamos el ID de instancia directo
+# Mutation con los argumentos exactos que pide el error anterior
 $UpdateMutation = @'
-mutation serviceInstanceUpdate($id: String!, $input: ServiceInstanceUpdateInput!) {
-  serviceInstanceUpdate(id: $id, input: $input)
+mutation serviceInstanceUpdate($environmentId: String!, $serviceId: String!, $input: ServiceInstanceUpdateInput!) {
+  serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input)
 }
 '@
 
-# Estructura robusta: intentamos escalar tanto global como regionalmente
+# Input simplificado al máximo para evitar "Invalid input"
 $InputData = @{
     numReplicas = [int]$Replicas
-    multiRegionConfig = @(
-        @{
-            region = $FinalRegion
-            numReplicas = [int]$Replicas
-        }
-    )
 }
 
 try {
-    $Result = Invoke-RailwayGraphQL -Query $UpdateMutation -Variables @{ 
+    $Variables = @{ 
         input = $InputData
-        id = $InstanceId
+        serviceId = $FinalServiceId
+        environmentId = $EnvId
     }
+    
+    # Debug: Mostrar qué estamos enviando exactamente
+    $JsonDebug = $Variables | ConvertTo-Json -Depth 5
+    Write-Host "Enviando variables: $JsonDebug" -ForegroundColor Gray
+
+    $Result = Invoke-RailwayGraphQL -Query $UpdateMutation -Variables $Variables
     
     if ($Result.serviceInstanceUpdate) {
         Write-Host "¡Éxito! Railway ha aceptado la orden de $Action." -ForegroundColor Green
-        if ($Action -eq "Stop") {
-            Write-Host "El servidor se apagará en unos segundos." -ForegroundColor Cyan
-        }
     } else {
         Write-Host "La API no confirmó el cambio. Verifica el panel de Railway." -ForegroundColor Yellow
     }
