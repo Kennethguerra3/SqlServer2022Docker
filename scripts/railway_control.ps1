@@ -54,13 +54,14 @@ if ([string]::IsNullOrWhiteSpace($FinalServiceId)) {
     exit 1
 }
 
-# 2. Función helper para API GraphQL
+# 2. Función helper para API GraphQL (Mejorada para ver errores)
 function Invoke-RailwayGraphQL {
     param ([string]$Query, [hashtable]$Variables)
     
     $Headers = @{
         "Authorization" = "Bearer $FinalToken"
         "Content-Type"  = "application/json"
+        "Accept"        = "application/json"
     }
     
     $Body = @{
@@ -69,16 +70,31 @@ function Invoke-RailwayGraphQL {
     } | ConvertTo-Json -Depth 5
 
     try {
-        $Response = Invoke-RestMethod -Uri "https://backboard.railway.app/graphql/v2" -Method Post -Headers $Headers -Body $Body -ErrorAction Stop
-        if ($Response.errors) {
-            Write-Host "API Error:" -ForegroundColor Red
-            $Response.errors | ForEach-Object { Write-Host $_.message }
-            throw "Railway API returned errors."
+        # Usamos Invoke-WebRequest para obtener la respuesta completa en caso de error 400/401
+        $Response = Invoke-WebRequest -Uri "https://backboard.railway.app/graphql/v2" `
+                                     -Method Post `
+                                     -Headers $Headers `
+                                     -Body $Body `
+                                     -ErrorAction Stop
+        
+        $Content = $Response.Content | ConvertFrom-Json
+        if ($Content.errors) {
+            Write-Host "API GraphQL Error:" -ForegroundColor Red
+            $Content.errors | ForEach-Object { Write-Host "- $($_.message)" }
+            throw "Railway API Error"
         }
-        return $Response.data
+        return $Content.data
     }
     catch {
-        Write-Host "Request Failed: $($_.Exception.Message)" -ForegroundColor Red
+        $ErrorObj = $_
+        if ($ErrorObj.Exception.Response) {
+            $Reader = New-Object System.IO.StreamReader($ErrorObj.Exception.Response.GetResponseStream())
+            $ErrorBody = $Reader.ReadToEnd()
+            Write-Host "Error detallado de Railway:" -ForegroundColor Red
+            Write-Host $ErrorBody -ForegroundColor Yellow
+        } else {
+            Write-Host "Fallo en la conexión: $($ErrorObj.Exception.Message)" -ForegroundColor Red
+        }
         throw
     }
 }
