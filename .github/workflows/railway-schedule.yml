@@ -60,7 +60,7 @@ jobs:
              } else {
                 $Action = "Stop"
              }
-             Write-Host "Hora UTC detectada: $Hour:$Min. Decisión: $Action"
+             Write-Host "Hora UTC detectada: ${Hour}:${Min}. Decision: $Action"
           }
           
           "ACTION=$Action" | Out-File -FilePath $env:GITHUB_ENV -Append
