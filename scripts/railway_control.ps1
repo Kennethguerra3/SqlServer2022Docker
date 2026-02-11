@@ -119,11 +119,16 @@ try {
     }
     
     $TargetInstance = $Instances[0].node
+    $InstanceId = $TargetInstance.id
     $EnvId = $TargetInstance.environmentId
     $Region = $TargetInstance.region
+    
+    # Si la región es nula, intentamos un default seguro o lo dejamos vacío para numReplicas global
+    $FinalRegion = if ($Region) { $Region } else { "us-east-1" }
     $ServiceName = $ServiceData.service.name
     
-    Write-Host "Servicio detectado: $ServiceName (Entorno: $EnvId | Región: $Region)" -ForegroundColor Green
+    Write-Host "Servicio detectado: $ServiceName" -ForegroundColor Green
+    Write-Host "ID Instancia: $InstanceId | Entorno: $EnvId | Región: $FinalRegion" -ForegroundColor Gray
 }
 catch {
     Write-Host "No se pudo obtener información del servicio." -ForegroundColor Red
@@ -143,38 +148,37 @@ if (-not $Action) {
 $Replicas = if ($Action -eq "Start") { 1 } else { 0 }
 Write-Host "Ejecutando orden: $Action (Replicas -> $Replicas)..." -ForegroundColor Yellow
 
-# Mutation maestra: Usamos una estructura más robusta para evitar "Invalid input"
+# Mutation maestra: Usamos el ID de instancia directo
 $UpdateMutation = @'
-mutation serviceInstanceUpdate($envId: String!, $svcId: String!, $input: ServiceInstanceUpdateInput!) {
-  serviceInstanceUpdate(environmentId: $envId, serviceId: $svcId, input: $input)
+mutation serviceInstanceUpdate($id: String!, $input: ServiceInstanceUpdateInput!) {
+  serviceInstanceUpdate(id: $id, input: $input)
 }
 '@
 
-# En Docker services, a veces numReplicas debe ir acompañado de la región o estar en un formato específico
+# Estructura robusta: intentamos escalar tanto global como regionalmente
 $InputData = @{
     numReplicas = [int]$Replicas
-}
-
-# Intentamos enviar la región si fue detectada
-if ($Region) {
-    # Algunas versiones de la API prefieren esto para validar el input
-    # Pero por ahora probaremos solo numReplicas con el tipo de dato forzado a Int de nuevo
+    multiRegionConfig = @(
+        @{
+            region = $FinalRegion
+            numReplicas = [int]$Replicas
+        }
+    )
 }
 
 try {
     $Result = Invoke-RailwayGraphQL -Query $UpdateMutation -Variables @{ 
         input = $InputData
-        svcId = $FinalServiceId
-        envId = $EnvId
+        id = $InstanceId
     }
     
     if ($Result.serviceInstanceUpdate) {
         Write-Host "¡Éxito! Railway ha aceptado la orden de $Action." -ForegroundColor Green
         if ($Action -eq "Stop") {
-            Write-Host "El servidor debería desaparecer de 'Metrics' en unos instantes." -ForegroundColor Cyan
+            Write-Host "El servidor se apagará en unos segundos." -ForegroundColor Cyan
         }
     } else {
-        Write-Host "Advertencia: La API no devolvió confirmación clara. Revisa el panel de Railway." -ForegroundColor Yellow
+        Write-Host "La API no confirmó el cambio. Verifica el panel de Railway." -ForegroundColor Yellow
     }
 }
 catch {
