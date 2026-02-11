@@ -93,7 +93,7 @@ function Invoke-RailwayGraphQL {
 Write-Host "Conectando a Railway..." -ForegroundColor Cyan
 
 $EnvQuery = @'
-query GetService($id: ID!) {
+query GetService($id: String!) {
   service(id: $id) {
     name
     serviceInstances {
@@ -101,9 +101,6 @@ query GetService($id: ID!) {
         node {
           id
           environmentId
-          environment {
-            name
-          }
         }
       }
     }
@@ -114,16 +111,17 @@ query GetService($id: ID!) {
 try {
     $ServiceData = Invoke-RailwayGraphQL -Query $EnvQuery -Variables @{ id = $FinalServiceId }
     
-    # Buscar específicamente el entorno 'production' o el primero si no existe
+    # Tomar la primera instancia disponible
     $Instances = $ServiceData.service.serviceInstances.edges
-    $TargetInstance = $Instances | Where-Object { $_.node.environment.name -eq "production" } | Select-Object -First 1
-    if (-not $TargetInstance) { $TargetInstance = $Instances[0] }
-
+    if (-not $Instances -or $Instances.Count -eq 0) {
+        throw "No se encontraron instancias para este servicio."
+    }
+    
+    $TargetInstance = $Instances[0]
     $EnvId = $TargetInstance.node.environmentId
     $ServiceName = $ServiceData.service.name
-    $EnvName = $TargetInstance.node.environment.name
     
-    Write-Host "Servicio detectado: $ServiceName (Entorno: $EnvName | ID: $EnvId)" -ForegroundColor Green
+    Write-Host "Servicio detectado: $ServiceName (ID de Entorno: $EnvId)" -ForegroundColor Green
 }
 catch {
     Write-Host "No se pudo obtener información del servicio." -ForegroundColor Red
