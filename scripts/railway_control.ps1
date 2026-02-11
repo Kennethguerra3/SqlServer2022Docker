@@ -79,14 +79,11 @@ function Invoke-RailwayGraphQL {
     }
     catch {
         Write-Host "Fallo en la petición API Railway (400/401)." -ForegroundColor Red
-        if ($_.Exception.Response) {
-            # Intentar extraer el mensaje de error de la respuesta HTTP
-            $Stream = $_.Exception.Response.GetResponseStream()
-            $Reader = New-Object System.IO.StreamReader($Stream)
-            $RawError = $Reader.ReadToEnd()
-            Write-Host "Respuesta cruda de Railway: $RawError" -ForegroundColor Yellow
-        } else {
-            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        # Forma universal de obtener el error en PowerShell Core (Linux) y Windows
+        if ($_.ErrorDetails) {
+            Write-Host "Detalle: $($_.ErrorDetails.Message)" -ForegroundColor Yellow
+        } elseif ($_.Exception.Message) {
+            Write-Host "Excepción: $($_.Exception.Message)" -ForegroundColor Yellow
         }
         throw
     }
@@ -96,7 +93,7 @@ function Invoke-RailwayGraphQL {
 Write-Host "Conectando a Railway..." -ForegroundColor Cyan
 
 $EnvQuery = @'
-query GetService($id: String!) {
+query GetService($id: ID!) {
   service(id: $id) {
     name
     serviceInstances {
