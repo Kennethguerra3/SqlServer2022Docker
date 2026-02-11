@@ -101,6 +101,7 @@ query GetService($id: String!) {
         node {
           id
           environmentId
+          region
         }
       }
     }
@@ -117,11 +118,12 @@ try {
         throw "No se encontraron instancias para este servicio."
     }
     
-    $TargetInstance = $Instances[0]
-    $EnvId = $TargetInstance.node.environmentId
+    $TargetInstance = $Instances[0].node
+    $EnvId = $TargetInstance.environmentId
+    $Region = $TargetInstance.region
     $ServiceName = $ServiceData.service.name
     
-    Write-Host "Servicio detectado: $ServiceName (ID de Entorno: $EnvId)" -ForegroundColor Green
+    Write-Host "Servicio detectado: $ServiceName (Entorno: $EnvId | Región: $Region)" -ForegroundColor Green
 }
 catch {
     Write-Host "No se pudo obtener información del servicio." -ForegroundColor Red
@@ -141,21 +143,23 @@ if (-not $Action) {
 $Replicas = if ($Action -eq "Start") { 1 } else { 0 }
 Write-Host "Ejecutando orden: $Action (Replicas -> $Replicas)..." -ForegroundColor Yellow
 
-# Mutation maestra: Actualiza tanto numReplicas como multiRegionConfig
+# Mutation maestra: Usamos una estructura más robusta para evitar "Invalid input"
 $UpdateMutation = @'
 mutation serviceInstanceUpdate($envId: String!, $svcId: String!, $input: ServiceInstanceUpdateInput!) {
   serviceInstanceUpdate(environmentId: $envId, serviceId: $svcId, input: $input)
 }
 '@
 
-# Construimos un input redundante para asegurar el apagado/encendido
+# En Docker services, a veces numReplicas debe ir acompañado de la región o estar en un formato específico
 $InputData = @{
     numReplicas = [int]$Replicas
 }
 
-# Intentamos obtener la región actual para ser más precisos
-$Region = $TargetInstance.node.region # Intentaremos capturar esto en la query arriba
-if (-not $Region) { $Region = "us-east-1" } # Default común en Railway
+# Intentamos enviar la región si fue detectada
+if ($Region) {
+    # Algunas versiones de la API prefieren esto para validar el input
+    # Pero por ahora probaremos solo numReplicas con el tipo de dato forzado a Int de nuevo
+}
 
 try {
     $Result = Invoke-RailwayGraphQL -Query $UpdateMutation -Variables @{ 
