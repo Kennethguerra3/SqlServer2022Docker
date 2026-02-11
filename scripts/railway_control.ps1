@@ -86,7 +86,7 @@ function Invoke-RailwayGraphQL {
 # 3. Obtener Environment ID (Simplificado y Preciso)
 Write-Host "Conectando a Railway..." -ForegroundColor Cyan
 
-$EnvQuery = @"
+$EnvQuery = @'
 query GetService($id: String!) {
   service(id: $id) {
     name
@@ -103,7 +103,7 @@ query GetService($id: String!) {
     }
   }
 }
-"@
+'@
 
 try {
     $ServiceData = Invoke-RailwayGraphQL -Query $EnvQuery -Variables @{ id = $FinalServiceId }
@@ -138,11 +138,11 @@ $Replicas = if ($Action -eq "Start") { 1 } else { 0 }
 Write-Host "Ejecutando orden: $Action (Replicas -> $Replicas)..." -ForegroundColor Yellow
 
 # Mutation maestra: Actualiza tanto numReplicas como multiRegionConfig
-$UpdateMutation = @"
+$UpdateMutation = @'
 mutation serviceInstanceUpdate($envId: String!, $svcId: String!, $input: ServiceInstanceUpdateInput!) {
   serviceInstanceUpdate(environmentId: $envId, serviceId: $svcId, input: $input)
 }
-"@
+'@
 
 # Construimos un input redundante para asegurar el apagado/encendido
 $InputData = @{
