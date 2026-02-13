@@ -27,10 +27,6 @@ ENV MSSQL_AGENT_ENABLED=true
 # ==========================================
 # 4. VARIABLES DE ENTORNO (ROBUSTEZ Y MEMORIA)
 # ==========================================
-# Límite de memoria para SQL Server (Fase 2)
-# Basado en mínimo de 2GB de Railway, limitamos a 1.9GB para evitar pánico.
-ENV MSSQL_MEMORY_LIMIT_MB=1900
-
 # Evita generar archivos de error y volcados gigantes que saturan los logs y el disco
 ENV MSSQL_ENABLE_COREDUMP=0
 ENV MSSQL_TELEMETRY_ENABLED=false
