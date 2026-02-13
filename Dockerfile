@@ -37,22 +37,29 @@ ENV MSSQL_TCP_KEEPALIVE=30000
 # 5. SISTEMA DE ARCHIVOS
 # ==========================================
 # Creamos la estructura de directorios blindada y asignamos permisos
+# Cambiamos a UID 10001 (mssql) que es el estándar de seguridad
 RUN mkdir -p /var/opt/mssql/data \
     && mkdir -p /var/opt/mssql/log \
     && mkdir -p /var/opt/mssql/secrets \
     && mkdir -p /var/opt/mssql/backup \
-    && chmod -R 777 /var/opt/mssql \
-    && chown -R root:root /var/opt/mssql
+    && chown -R 10001:0 /var/opt/mssql \
+    && chmod -R 770 /var/opt/mssql
+
+# Copiamos el script de entrada y damos permisos
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ==========================================
-# 6. HEALTHCHECK (MONITOREO)
+# 6. HEALTHCHECK (MONITOREO RELAJADO)
 # ==========================================
-# Verifica cada 15s que el servidor responda. Si falla 3 veces, reinicia.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-    CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1
+# Relajamos los tiempos para evitar reinicios agresivos durante la carga inicial.
+# - interval: 30s (más tiempo entre pruebas)
+# - start-period: 60s (más tiempo para arrancar frío)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" > /dev/null 2>&1 || exit 1
 
 # ==========================================
 # 7. ARRANQUE
 # ==========================================
 EXPOSE 1433
-CMD ["/opt/mssql/bin/sqlservr"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
