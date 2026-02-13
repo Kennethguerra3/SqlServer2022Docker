@@ -25,10 +25,16 @@ ENV TZ=America/Lima
 ENV MSSQL_AGENT_ENABLED=true
 
 # ==========================================
-# 4. VARIABLES DE ENTORNO (ROBUSTEZ)
+# 4. VARIABLES DE ENTORNO (ROBUSTEZ Y MEMORIA)
 # ==========================================
-# Evita generar archivos de error gigantes que llenan el disco
+# Límite de memoria para SQL Server (Fase 2)
+# Basado en mínimo de 2GB de Railway, limitamos a 1.8GB para evitar pánico.
+ENV MSSQL_MEMORY_LIMIT_MB=1800
+
+# Evita generar archivos de error y volcados gigantes que saturan los logs y el disco
 ENV MSSQL_ENABLE_COREDUMP=0
+ENV MSSQL_TELEMETRY_ENABLED=false
+ENV MSSQL_DUMP_ON_ERROR=0
 
 # Optimización de red para evitar cortes en la nube (Power BI / SSMS)
 ENV MSSQL_TCP_KEEPALIVE=30000
