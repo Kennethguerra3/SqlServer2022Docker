@@ -6,8 +6,8 @@ echo "Iniciando secuencia de estabilización de Antigravity..."
 # 1. Retraso de seguridad (Anti-Panic Attack)
 # Esto evita que Railway entre en un bucle infinito de reinicios inmediatos
 # si algo falla catastróficamente durante los primeros segundos.
-echo "Esperando 15 segundos para estabilizar el entorno..."
-sleep 15
+echo "Esperando 5 segundos para estabilizar el entorno..."
+sleep 5
 
 # 2. Corrección de permisos en caliente
 # SQL Server oficial usa el usuario 'mssql' (UID 10001)
