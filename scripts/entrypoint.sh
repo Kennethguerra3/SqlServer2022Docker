@@ -1,5 +1,17 @@
 #!/bin/bash
-set -e
+# Nivel 3: Apagado Seguro y Auto-Reparación
+
+echo "Arrancando contenedor de SQL Server..."
+
+# NOTA SOBRE PERMISOS EN RAILWAY:
+# Railway a veces monta los volúmenes con propietario root:root (UID 0).
+# Como ejecutamos el contenedor con USER 10001 (por requerimiento de SQL Server),
+# no tenemos permisos de sudo/chown en runtime para arreglar el montaje de /var/opt/mssql.
+# Por tanto, dependemos de que los subdirectorios tengan los permisos correctos
+# O de crear la estructura ANTES de iniciar sqlservr localmente.
+
+# Intentamos crear la carpeta oculta .system que a veces falla en volúmenes limpios
+mkdir -p /var/opt/mssql/.system 2>/dev/null || true
 
 # Función para propagar el apagado limpio (SIGTERM)
 function graceful_shutdown() {
