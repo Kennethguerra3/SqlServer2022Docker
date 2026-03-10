@@ -4,13 +4,7 @@
 echo "[RECOVERY] Iniciando secuencia de recuperación..."
 
 # ==========================================
-# 1. FIJAR LÍMITE DE STACK (evita Stack Overflow / errno 11 y 22)
-# ==========================================
-echo "[RECOVERY] Aplicando ulimit -s unlimited..."
-ulimit -s unlimited
-
-# ==========================================
-# 2. RETRASO DE SEGURIDAD
+# 1. RETRASO DE SEGURIDAD
 # ==========================================
 echo "[RECOVERY] Esperando 5 segundos para estabilizar el entorno..."
 sleep 5
