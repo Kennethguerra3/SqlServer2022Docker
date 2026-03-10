@@ -19,10 +19,20 @@ function graceful_shutdown() {
     exit 0
 }
 
-# Atrapamos SIGTERM (STOPSIGNAL)
-trap graceful_shutdown SIGTERM
+# 1. Atrapamos las señales de detención (Railway matando el contenedor)
+trap "graceful_shutdown" SIGINT SIGTERM
 
-# Iniciamos SQL Server en segundo plano
+# 1.5. Forzar las rutas correctas para evitar errores de permisos 
+# (Error: The log directory [/log] could not be created)
+echo "Configurando rutas seguras para SQL Server..."
+/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data
+/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log
+/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog
+/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup
+/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log
+
+# 2. Iniciamos el motor de SQL en background
+echo "Iniciando SQL Server en segundo plano..."
 /opt/mssql/bin/sqlservr &
 pid=$!
 

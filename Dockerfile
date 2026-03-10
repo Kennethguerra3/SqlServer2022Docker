@@ -45,13 +45,21 @@ ENV ACCEPT_EULA=Y \
     MSSQL_BACKUP_DIR=/var/opt/mssql/backup
 
 # ==========================================
-# 5. VARIABLES DE ENTORNO (ROBUSTEZ Y MEMORIA)
+# 5. VARIABLES DE ENTORNO
 # ==========================================
-ENV MSSQL_ENABLE_COREDUMP=0 \
-    MSSQL_DUMP_ON_ERROR=0 \
-    # Límite de RAM — AJUSTAR según plan Railway: 2GB→1500, 4GB→3500, 8GB→6000
-    # Sin límite, SQL Server toma el 90% de RAM y Railway mata el contenedor
-    MSSQL_MEMORY_LIMIT_MB=3500 \
+# Prevención de Core Dumps (Evita colapsar el almacenamiento si SQL Server crashea)
+ENV MSSQL_ENABLE_COREDUMP=0
+ENV MSSQL_DUMP_ON_ERROR=0
+
+# RUTAS EXPLICITAS (Evita que SQL Server intente escribir en /, ej: /log)
+ENV MSSQL_DATA_DIR="/var/opt/mssql/data"
+ENV MSSQL_LOG_DIR="/var/opt/mssql/log"
+ENV MSSQL_BACKUP_DIR="/var/opt/mssql/backup"
+ENV MSSQL_SECRETS_DIR="/var/opt/mssql/secrets"
+
+# Limites de Memoria (3.5 GB máximo para el motor SQL - Protege contra OOMKills de Railway): 2GB→1500, 4GB→3500, 8GB→6000
+# Sin límite, SQL Server toma el 90% de RAM y Railway mata el contenedor
+ENV MSSQL_MEMORY_LIMIT_MB=3500 \
     # TCP Keepalive: evita cortes de conexión desde Power BI / SSMS en la nube
     # Tiempo antes del primer paquete keep-alive (ms)
     MSSQL_TCP_KEEPALIVE=30000 \
