@@ -42,29 +42,47 @@ for f in "${SYSFILES[@]}"; do
 done
 
 # ==========================================
-# 5. LIMPIAR ARCHIVOS RESIDUALES DE INSTANCIAS ANTERIORES
-#    Estos bloquean el "persistent hive root" de sqlpal.dll
-#    causando STATUS_ACCESS_DENIED (0xc0000022)
+# 5. LIMPIEZA PROFUNDA — HIVE, IPC, SHARED MEMORY
+#    El "persistent hive root" de sqlpal.dll falla con
+#    STATUS_ACCESS_DENIED (0xc0000022) + errno 11 (EAGAIN)
+#    cuando hay recursos IPC/shm de instancias anteriores
 # ==========================================
-echo "[RECOVERY] Limpiando archivos residuales de crashes anteriores..."
+echo "[RECOVERY] Limpieza profunda de recursos del sistema..."
 
-# Core dumps (pueden ocupar GB y bloquear el hive)
-rm -f /var/opt/mssql/log/core.* 2>/dev/null || true
+# --- Todo el directorio de logs (SQL Server los recrea) ---
+rm -rf /var/opt/mssql/log/* 2>/dev/null || true
 
-# Archivos de lock y PID de instancias anteriores
-find /var/opt/mssql -name "*.pid" -delete 2>/dev/null || true
-find /var/opt/mssql -name "*.lck" -delete 2>/dev/null || true
+# --- Secrets / hive files ---
+rm -rf /var/opt/mssql/secrets/* 2>/dev/null || true
 
-# Logs de error de instancias anteriores (SQL Server los recrea)
-rm -f /var/opt/mssql/log/errorlog* 2>/dev/null || true
-rm -f /var/opt/mssql/log/sqlagent.* 2>/dev/null || true
-rm -f /var/opt/mssql/log/HkEngineEventFile* 2>/dev/null || true
+# --- Configuración de instancia anterior (usa variables de entorno como fuente) ---
+rm -f /var/opt/mssql/mssql.conf 2>/dev/null || true
 
-# Secrets / hive de instancias anteriores que causan ACCESS_DENIED
-# (SQL Server los recrea con la nueva master.mdf)
-rm -f /var/opt/mssql/secrets/* 2>/dev/null || true
+# --- Archivos ocultos de sistema que guardan el Instance ID del hive ---
+find /var/opt/mssql -maxdepth 1 -name ".*" -not -name "." \
+    -delete 2>/dev/null || true
 
-echo "[RECOVERY] Limpieza completada."
+# --- Locks y PIDs en toda la jerarquía ---
+find /var/opt/mssql -name "*.pid" -o -name "*.lck" \
+    | xargs rm -f 2>/dev/null || true
+
+# --- Shared memory POSIX (causa del errno 11 / EAGAIN) ---
+rm -f /dev/shm/mssql*    2>/dev/null || true
+rm -f /dev/shm/sqlpal*   2>/dev/null || true
+rm -f /dev/shm/sqlservr* 2>/dev/null || true
+rm -f /dev/shm/*.mem     2>/dev/null || true
+
+# --- System V IPC (shared memory + semáforos de instancias crasheadas) ---
+ipcs -m 2>/dev/null | awk 'NR>2 && $1~/^0x/ {print $2}' \
+    | xargs -r ipcrm -m 2>/dev/null || true
+ipcs -s 2>/dev/null | awk 'NR>2 && $1~/^0x/ {print $2}' \
+    | xargs -r ipcrm -s 2>/dev/null || true
+
+# --- Archivos temporales de SQL Server en /tmp ---
+rm -f /tmp/mssql*    2>/dev/null || true
+rm -f /tmp/sqlservr* 2>/dev/null || true
+
+echo "[RECOVERY] Limpieza profunda completada."
 
 # ==========================================
 # 5. ARRANCAR SQL SERVER EN SEGUNDO PLANO
