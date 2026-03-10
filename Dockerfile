@@ -47,8 +47,9 @@ RUN mkdir -p /var/opt/mssql/data \
     && chown -R 10001:0 /var/opt/mssql \
     && chmod -R 770 /var/opt/mssql
 
-# Copiamos el script de entrada y damos permisos
+# Copiamos los scripts de entrada y recuperación
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY scripts/attach_databases.sql /usr/local/bin/attach_databases.sql
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ==========================================
