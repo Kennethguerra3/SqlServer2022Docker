@@ -41,6 +41,30 @@ for f in "${SYSFILES[@]}"; do
     fi
 done
 
+# ==========================================
+# 5. LIMPIAR ARCHIVOS RESIDUALES DE INSTANCIAS ANTERIORES
+#    Estos bloquean el "persistent hive root" de sqlpal.dll
+#    causando STATUS_ACCESS_DENIED (0xc0000022)
+# ==========================================
+echo "[RECOVERY] Limpiando archivos residuales de crashes anteriores..."
+
+# Core dumps (pueden ocupar GB y bloquear el hive)
+rm -f /var/opt/mssql/log/core.* 2>/dev/null || true
+
+# Archivos de lock y PID de instancias anteriores
+find /var/opt/mssql -name "*.pid" -delete 2>/dev/null || true
+find /var/opt/mssql -name "*.lck" -delete 2>/dev/null || true
+
+# Logs de error de instancias anteriores (SQL Server los recrea)
+rm -f /var/opt/mssql/log/errorlog* 2>/dev/null || true
+rm -f /var/opt/mssql/log/sqlagent.* 2>/dev/null || true
+rm -f /var/opt/mssql/log/HkEngineEventFile* 2>/dev/null || true
+
+# Secrets / hive de instancias anteriores que causan ACCESS_DENIED
+# (SQL Server los recrea con la nueva master.mdf)
+rm -f /var/opt/mssql/secrets/* 2>/dev/null || true
+
+echo "[RECOVERY] Limpieza completada."
 
 # ==========================================
 # 5. ARRANCAR SQL SERVER EN SEGUNDO PLANO
