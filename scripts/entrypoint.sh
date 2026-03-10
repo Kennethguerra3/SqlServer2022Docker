@@ -53,6 +53,14 @@ echo "Configurando rutas seguras para SQL Server..."
 /opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup 2>/dev/null || true
 /opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log 2>/dev/null || true
 
+echo "Desactivando E/S O_DIRECT estricta para compatibilidad con el volumen de Railway (NFS/Ceph)..."
+# Desactiva O_DIRECT, usando Buffered I/O para evitar crasheos de alineación de sector (Sector size misaligned)
+/opt/mssql/bin/mssql-conf set control.writethrough 1 2>/dev/null || true
+# Usa fsync() profundo en lugar de O_DSYNC
+/opt/mssql/bin/mssql-conf set control.alternateosync 1 2>/dev/null || true
+# Trace Flag 3979: Fuerza a SQL Server a soportar I/O alternativo seguro
+/opt/mssql/bin/mssql-conf traceflag 3979 on 2>/dev/null || true
+
 # 2. Iniciamos el motor de SQL en background
 echo "Iniciando SQL Server en segundo plano..."
 /opt/mssql/bin/sqlservr &
