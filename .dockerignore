@@ -1,0 +1,10 @@
+# Control de versiones
+.git
+.gitignore
+
+# Documentación (no se necesita en la imagen)
+*.md
+
+# Archivos de entorno local (nunca incluir en la imagen)
+.env
+.env.*
