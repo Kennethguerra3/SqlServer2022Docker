@@ -67,14 +67,19 @@ COPY scripts/auto_repair.sql /usr/local/bin/auto_repair.sql
 
 # Creamos la estructura de directorios con permisos correctos
 # para el usuario mssql (UID 10001) — todo en un solo RUN para minimizar capas
-# IMPORTANTE: Hacemos chown al propio punto de montaje /var/opt/mssql 
+# IMPORTANTE 1: Hacemos chown al propio punto de montaje /var/opt/mssql 
 # para que si Railway monta un volumen ahí, herede/acepte los permisos.
+# IMPORTANTE 2: Creamos /.system en la raíz porque SQL Server lo usa 
+# internamente y dará Access Denied si no existe y es propiedad de 10001.
 RUN mkdir -p /var/opt/mssql/data \
     && mkdir -p /var/opt/mssql/log \
     && mkdir -p /var/opt/mssql/secrets \
     && mkdir -p /var/opt/mssql/backup \
     && chown -R 10001:0 /var/opt/mssql \
     && chmod -R 775 /var/opt/mssql \
+    && mkdir -p /.system \
+    && chown -R 10001:0 /.system \
+    && chmod -R 775 /.system \
     && chmod +x /usr/local/bin/entrypoint.sh
 
 # ==========================================

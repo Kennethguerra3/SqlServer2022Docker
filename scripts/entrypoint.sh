@@ -10,9 +10,6 @@ echo "Arrancando contenedor de SQL Server..."
 # Por tanto, dependemos de que los subdirectorios tengan los permisos correctos
 # O de crear la estructura ANTES de iniciar sqlservr localmente.
 
-# Intentamos crear la carpeta oculta .system que a veces falla en volúmenes limpios
-mkdir -p /var/opt/mssql/.system 2>/dev/null || true
-
 # Función para propagar el apagado limpio (SIGTERM)
 function graceful_shutdown() {
     echo "Recibida señal SIGTERM de Railway. Apagando SQL Server de forma segura..."
