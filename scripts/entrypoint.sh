@@ -44,22 +44,30 @@ trap "graceful_shutdown" SIGINT SIGTERM
 
 # (El paso 1.3 de pre-crear directorios ya fue manejado por el bloque ROOT de gosu arriba)
 
-# 1.5. Forzar las rutas correctas para evitar errores de permisos 
-# (Error: The log directory [/log] could not be created)
-echo "Configurando rutas seguras para SQL Server..."
-/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data || echo "WARNING: mssql-conf falló (datadir)"
-/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log || echo "WARNING: mssql-conf falló (logdir)"
-/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog || echo "WARNING: mssql-conf falló (errorlog)"
-/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup || echo "WARNING: mssql-conf falló (backupdir)"
-/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log || echo "WARNING: mssql-conf falló (dumpdir)"
+# 1.5. Forzar mssql.conf explícitamente sin depender de la utilidad de python
+echo "Generando mssql.conf estricto para rutas seguras y compatibilidad O_DIRECT..."
+cat <<EOF > /var/opt/mssql/mssql.conf
+[filelocation]
+defaultdatadir = /var/opt/mssql/data
+defaultlogdir = /var/opt/mssql/log
+errorlogfile = /var/opt/mssql/log/errorlog
+defaultbackupdir = /var/opt/mssql/backup
+defaultdumpdir = /var/opt/mssql/log
 
-echo "Desactivando E/S O_DIRECT estricta para compatibilidad con el volumen de Railway (NFS/Ceph)..."
-# Desactiva O_DIRECT, usando Buffered I/O para evitar crasheos de alineación de sector (Sector size misaligned)
-/opt/mssql/bin/mssql-conf set control.writethrough 1 || true
-# Usa fsync() profundo en lugar de O_DSYNC
-/opt/mssql/bin/mssql-conf set control.alternateosync 1 || true
-# Trace Flag 3979: Fuerza a SQL Server a soportar I/O alternativo seguro
-/opt/mssql/bin/mssql-conf traceflag 3979 on || true
+[control]
+writethrough = 1
+alternateosync = 1
+
+[traceflag]
+traceflag0 = 3979
+traceflag1 = 1800
+EOF
+
+# Imprimir por consola para validar en Railway
+cat /var/opt/mssql/mssql.conf
+
+# Adicionalmente pasamos los traceflags globales al entorno (3979=I/O alternativo seguro, 1800=Optimización 4K para Ceph/NFS)
+export MSSQL_TRACE_FLAGS="3979,1800"
 
 # 2. Iniciamos el motor de SQL en background
 echo "Iniciando SQL Server en segundo plano..."
