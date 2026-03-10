@@ -44,6 +44,20 @@ El resto de variables (`ACCEPT_EULA`, `MSSQL_PID`, zona horaria, agente SQL, etc
 
 ---
 
+## 💾 Volumen Persistente (Importante)
+
+Para que tus bases de datos no se borren cuando el contenedor se reinicie o se actualice, **debes añadir un volumen** a tu servicio en Railway.
+
+En la configuración del servicio, ve a **Volumes**, haz clic en **Add Volume** y en el campo **Mount Path** coloca exactamente esto:
+
+```text
+/var/opt/mssql
+```
+
+Esta carpeta es donde residirán tus bases de datos (`data/`), archivos de registro (`log/`), backups (`backup/`) y secretos instalados en el contenedor.
+
+---
+
 ## 📁 Estructura del Proyecto
 
 ```
@@ -56,11 +70,15 @@ El resto de variables (`ACCEPT_EULA`, `MSSQL_PID`, zona horaria, agente SQL, etc
 
 ---
 
-## 🔌 Puertos
+## 🔌 Conexión Externa y Puertos (TCP Proxy)
 
-| Puerto | Protocolo | Uso |
-|---|---|---|
-| `1433` | TCP | SQL Server (SSMS, Power BI, aplicaciones) |
+Por defecto, los servicios de Railway son privados. Para conectar Power BI, SQL Server Management Studio (SSMS) o DBeaver desde tu computadora, **tienes que exponer el puerto**.
+
+1. Ve a la pestaña **Settings** de tu servicio en Railway.
+2. Baja hasta la sección **Networking** > **Public Networking**.
+3. Haz clic en **Add TCP Proxy**.
+4. En el campo que dice `Enter your application port`, escribe **`1433`** (el puerto por defecto de SQL Server) y dale a **Add Proxy**.
+5. Railway te generará una URL (ej: `tcp.railway.app`) y un puerto público (ej: `50123`). Esos son el **Subdominio o IP** y el **Puerto** que usarás en Power BI o SSMS para conectarte.
 
 ---
 

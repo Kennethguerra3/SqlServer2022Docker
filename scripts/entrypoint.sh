@@ -12,11 +12,11 @@ echo "Arrancando contenedor de SQL Server..."
 echo "Iniciando como mssql (UID 10001): Configurando permisos del volumen de Railway via sudo..."
 
 # 1. Creamos la estructura dentro del volumen por si Railway lo entregó vacío
-sudo mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log /.system
+sudo /usr/bin/mkdir -p /var/opt/mssql/data /var/opt/mssql/log/mssql-conf /var/opt/mssql/backup /var/opt/mssql/secrets /log /.system
 
 # 2. Forzamos el owner para que SQL Server (mssql) pueda escribir sin Access Denied
-sudo chown -R 10001:0 /var/opt/mssql /.system /log || true
-sudo chmod -R 770 /var/opt/mssql /.system /log || true
+sudo /usr/bin/chown -v -R 10001:0 /var/opt/mssql /.system /log || echo "WARNING: Fallo en chown"
+sudo /usr/bin/chmod -v -R 770 /var/opt/mssql /.system /log || echo "WARNING: Fallo en chmod"
 
 echo "Permisos arreglados ✅ Iniciando SQL Server de forma nativa..."
 
@@ -47,19 +47,19 @@ trap "graceful_shutdown" SIGINT SIGTERM
 # 1.5. Forzar las rutas correctas para evitar errores de permisos 
 # (Error: The log directory [/log] could not be created)
 echo "Configurando rutas seguras para SQL Server..."
-/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data 2>/dev/null || true
-/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log 2>/dev/null || true
-/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog 2>/dev/null || true
-/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup 2>/dev/null || true
-/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data || echo "WARNING: mssql-conf falló (datadir)"
+/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log || echo "WARNING: mssql-conf falló (logdir)"
+/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog || echo "WARNING: mssql-conf falló (errorlog)"
+/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup || echo "WARNING: mssql-conf falló (backupdir)"
+/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log || echo "WARNING: mssql-conf falló (dumpdir)"
 
 echo "Desactivando E/S O_DIRECT estricta para compatibilidad con el volumen de Railway (NFS/Ceph)..."
 # Desactiva O_DIRECT, usando Buffered I/O para evitar crasheos de alineación de sector (Sector size misaligned)
-/opt/mssql/bin/mssql-conf set control.writethrough 1 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set control.writethrough 1 || true
 # Usa fsync() profundo en lugar de O_DSYNC
-/opt/mssql/bin/mssql-conf set control.alternateosync 1 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set control.alternateosync 1 || true
 # Trace Flag 3979: Fuerza a SQL Server a soportar I/O alternativo seguro
-/opt/mssql/bin/mssql-conf traceflag 3979 on 2>/dev/null || true
+/opt/mssql/bin/mssql-conf traceflag 3979 on || true
 
 # 2. Iniciamos el motor de SQL en background
 echo "Iniciando SQL Server en segundo plano..."
