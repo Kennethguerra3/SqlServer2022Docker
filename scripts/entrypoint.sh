@@ -17,24 +17,30 @@ chown -R mssql:root /var/opt/mssql
 chmod -R 770 /var/opt/mssql
 
 # ==========================================
-# 4. DETECCIÓN Y REEMPLAZO DEL MASTER.MDF CORRUPTO
+# 4. RENOMBRAR TODOS LOS ARCHIVOS DE SISTEMA CORRUPTOS
+#    SQL Server los recreará desde los templates del paquete
+#    Los archivos .bak quedan conservados en el volumen
 # ==========================================
-MASTER_MDF="/var/opt/mssql/data/master.mdf"
-MASTER_MDF_BAK="/var/opt/mssql/data/master.mdf.bak"
-MASTER_LDF="/var/opt/mssql/data/mastlog.ldf"
-MASTER_LDF_BAK="/var/opt/mssql/data/mastlog.ldf.bak"
+SYSFILES=(
+    "master.mdf"
+    "mastlog.ldf"
+    "model.mdf"
+    "modellog.ldf"
+    "msdbdata.mdf"
+    "msdblog.ldf"
+    "tempdb.mdf"
+    "templog.ldf"
+)
 
-if [ -f "$MASTER_MDF" ]; then
-    echo "[RECOVERY] master.mdf detectado. Renombrando versión potencialmente corrupta..."
-    mv "$MASTER_MDF" "$MASTER_MDF_BAK"
-    echo "[RECOVERY] master.mdf renombrado a master.mdf.bak (conservado)"
-fi
+for f in "${SYSFILES[@]}"; do
+    SRC="/var/opt/mssql/data/${f}"
+    DST="/var/opt/mssql/data/${f}.bak"
+    if [ -f "$SRC" ]; then
+        mv "$SRC" "$DST"
+        echo "[RECOVERY] Renombrado: ${f} → ${f}.bak"
+    fi
+done
 
-if [ -f "$MASTER_LDF" ]; then
-    echo "[RECOVERY] mastlog.ldf detectado. Renombrando..."
-    mv "$MASTER_LDF" "$MASTER_LDF_BAK"
-    echo "[RECOVERY] mastlog.ldf renombrado a mastlog.ldf.bak (conservado)"
-fi
 
 # ==========================================
 # 5. ARRANCAR SQL SERVER EN SEGUNDO PLANO
