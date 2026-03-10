@@ -3,7 +3,10 @@
 # ==========================================
 # Usamos la versión 2019 para máxima compatibilidad inicial.
 # (Más tarde podrás cambiar esto a: 2022-latest para el Upgrade)
-FROM mcr.microsoft.com/mssql/server:2022-latest
+# IMPORTANTE: NO usar 2022-latest — fue actualizado a Ubuntu 22.04 con sqlpal package6
+# que hace Stack Overflow con el storage de Railway (synchronous IO fallback bug).
+# Ubuntu 20.04 (package4/sqlpal) funciona correctamente.
+FROM mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-20.04
 
 # ==========================================
 # 2. PERMISOS
