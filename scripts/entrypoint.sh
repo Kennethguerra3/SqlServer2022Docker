@@ -13,23 +13,34 @@ echo "Arrancando contenedor de SQL Server..."
 # Función para propagar el apagado limpio (SIGTERM)
 function graceful_shutdown() {
     echo "Recibida señal SIGTERM de Railway. Apagando SQL Server de forma segura..."
-    kill -TERM "$pid"
-    wait "$pid"
-    echo "SQL Server apagado correctamente."
+    
+    if [ -n "$MSSQL_SA_PASSWORD" ]; then
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SHUTDOWN WITH NOWAIT" -C
+        echo "SHUTDOWN ejecutado pacíficamente. 🛑"
+    else
+        kill -s TERM $pid
+    fi
+    
+    wait $pid
     exit 0
 }
 
 # 1. Atrapamos las señales de detención (Railway matando el contenedor)
 trap "graceful_shutdown" SIGINT SIGTERM
 
+# 1.3 Pre-crear directorios en caso de que el volumen de Railway haya montado
+# una carpeta completamente vacía y haya ocultado el RUN mkdir del Dockerfile:
+echo "Verificando/Creando directorios dentro del volumen montado..."
+mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log 2>/dev/null || true
+
 # 1.5. Forzar las rutas correctas para evitar errores de permisos 
 # (Error: The log directory [/log] could not be created)
 echo "Configurando rutas seguras para SQL Server..."
-/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data
-/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log
-/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog
-/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup
-/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log
+/opt/mssql/bin/mssql-conf set filelocation.defaultdatadir /var/opt/mssql/data 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set filelocation.defaultlogdir /var/opt/mssql/log 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set filelocation.errorlogfile /var/opt/mssql/log/errorlog 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set filelocation.defaultbackupdir /var/opt/mssql/backup 2>/dev/null || true
+/opt/mssql/bin/mssql-conf set filelocation.defaultdumpdir /var/opt/mssql/log 2>/dev/null || true
 
 # 2. Iniciamos el motor de SQL en background
 echo "Iniciando SQL Server en segundo plano..."
