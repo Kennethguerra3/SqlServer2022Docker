@@ -5,31 +5,23 @@ echo "Arrancando contenedor de SQL Server..."
 
 # NOTA SOBRE PERMISOS DE VOLÚMENES EN RAILWAY:
 # Railway monta los volúmenes persistentes con el propietario root (UID 0).
-# Como el Dockerfile arranca como root temporalmente, arreglamos el montaje 
-# y luego nos re-ejecutamos como mssql (UID 10001) usando 'gosu' 
-# para soltar privilegios pero mantener el control del PID 1 (vital para atrapar SIGTERM).
+# Como iniciamos nativamente como el usuario mssql (UID 10001) para preservar el flag 
+# PR_SET_DUMPABLE del kernel (vital para que SQL Server no colapse al leer su memoria),
+# usamos 'sudo' (cuyos comandos están permitidos sin password) para arreglar el volumen en runtime.
 
-if [ "$(id -u)" = "0" ]; then
-    echo "Iniciando como ROOT: Configurando permisos del volumen de Railway..."
-    
-    # 1. Creamos la estructura dentro del volumen por si Railway lo entregó vacío
-    mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log
-    
-    # 2. Forzamos el owner para que SQL Server (mssql) pueda escribir sin Access Denied
-    chown -R 10001:0 /var/opt/mssql
-    chmod -R 770 /var/opt/mssql
-    
-    # 3. Solucionamos también el fallback log root
-    chown -R 10001:0 /log || true
-    
-    echo "Permisos arreglados ✅ Cediendo control al usuario 'mssql' (UID 10001)..."
-    
-    # 4. Re-ejecutamos este mismo script pero sin privilegios de root
-    exec gosu mssql "$0" "$@"
-fi
+echo "Iniciando como mssql (UID 10001): Configurando permisos del volumen de Railway via sudo..."
+
+# 1. Creamos la estructura dentro del volumen por si Railway lo entregó vacío
+sudo mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log /.system
+
+# 2. Forzamos el owner para que SQL Server (mssql) pueda escribir sin Access Denied
+sudo chown -R 10001:0 /var/opt/mssql /.system /log || true
+sudo chmod -R 770 /var/opt/mssql /.system /log || true
+
+echo "Permisos arreglados ✅ Iniciando SQL Server de forma nativa..."
 
 # =========================================================================
-# A partir de este punto, el script siempre se ejecuta como 'mssql' (UID 10001).
+# Ejecución nativa de SQL Server como 'mssql'
 # =========================================================================
 
 # Función para propagar el apagado limpio (SIGTERM)

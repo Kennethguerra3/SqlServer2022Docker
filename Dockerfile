@@ -28,8 +28,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Elevamos a Root para instalar herramientas y manipular sistemas de archivos
 USER root
 
-# Instalamos gosu para poder hacer drop-privileges seguro manteniendo señales (PID 1)
-RUN apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*
+# Instalamos sudo para poder arreglar permisos del volumen sin perder el flag PR_SET_DUMPABLE
+RUN apt-get update && \
+    apt-get install -y sudo && \
+    if [ ! -f /etc/sudoers.d/mssql ]; then \
+        echo "mssql ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/chown, /usr/bin/chmod" > /etc/sudoers.d/mssql; \
+        chmod 0440 /etc/sudoers.d/mssql; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # ==========================================
 # 4. VARIABLES DE ENTORNO (CONFIGURACIÓN)
@@ -110,11 +116,11 @@ EXPOSE 1433
 # y guarda logs antes de terminar (apagado graceful)
 STOPSIGNAL SIGTERM
 
-# IMPORTANTE: Eliminamos USER 10001 aquí. Dejamos que el contenedor arranque
-# como root para que el entrypoint.sh pueda arreglar el ownership del volumen
-# que Railway corrompe (lo monta como root), y luego el script usará 'gosu'
-# para transferir la ejecución al usuario mssql (UID 10001).
-# USER 10001
+# IMPORTANTE: A diferencia del workaround con 'gosu', iniciar SQL Server cambiando UID en runtime 
+# provoca la eliminación del flag de kernel PR_SET_DUMPABLE. Esto evita que SQL Server lea su 
+# propio /proc/self/maps, lo que revienta el sistema de memoria SQLOS (dumps constantes).
+# Solución nativa: Arrancar directamente como 10001 y usar el 'sudo' configurado arriba para chown.
+USER 10001
 
 # Arrancamos usando nuestro script personalizado que incluye
 # manejo de SIGTERM y la auto-reparación de Nivel 3
