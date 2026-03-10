@@ -23,10 +23,13 @@ LABEL maintainer="kenneth" \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # ==========================================
-# 3. PERMISOS
+# 3. PERMISOS Y DEPENDENCIAS (GOSU)
 # ==========================================
-# Elevamos a Root para poder manipular el sistema de archivos de Railway
+# Elevamos a Root para instalar herramientas y manipular sistemas de archivos
 USER root
+
+# Instalamos gosu para poder hacer drop-privileges seguro manteniendo señales (PID 1)
+RUN apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*
 
 # ==========================================
 # 4. VARIABLES DE ENTORNO (CONFIGURACIÓN)
@@ -107,8 +110,11 @@ EXPOSE 1433
 # y guarda logs antes de terminar (apagado graceful)
 STOPSIGNAL SIGTERM
 
-# Regresamos al usuario mssql (UID 10001) por seguridad
-USER 10001
+# IMPORTANTE: Eliminamos USER 10001 aquí. Dejamos que el contenedor arranque
+# como root para que el entrypoint.sh pueda arreglar el ownership del volumen
+# que Railway corrompe (lo monta como root), y luego el script usará 'gosu'
+# para transferir la ejecución al usuario mssql (UID 10001).
+# USER 10001
 
 # Arrancamos usando nuestro script personalizado que incluye
 # manejo de SIGTERM y la auto-reparación de Nivel 3

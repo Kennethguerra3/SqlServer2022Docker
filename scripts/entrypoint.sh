@@ -3,12 +3,34 @@
 
 echo "Arrancando contenedor de SQL Server..."
 
-# NOTA SOBRE PERMISOS EN RAILWAY:
-# Railway a veces monta los volúmenes con propietario root:root (UID 0).
-# Como ejecutamos el contenedor con USER 10001 (por requerimiento de SQL Server),
-# no tenemos permisos de sudo/chown en runtime para arreglar el montaje de /var/opt/mssql.
-# Por tanto, dependemos de que los subdirectorios tengan los permisos correctos
-# O de crear la estructura ANTES de iniciar sqlservr localmente.
+# NOTA SOBRE PERMISOS DE VOLÚMENES EN RAILWAY:
+# Railway monta los volúmenes persistentes con el propietario root (UID 0).
+# Como el Dockerfile arranca como root temporalmente, arreglamos el montaje 
+# y luego nos re-ejecutamos como mssql (UID 10001) usando 'gosu' 
+# para soltar privilegios pero mantener el control del PID 1 (vital para atrapar SIGTERM).
+
+if [ "$(id -u)" = "0" ]; then
+    echo "Iniciando como ROOT: Configurando permisos del volumen de Railway..."
+    
+    # 1. Creamos la estructura dentro del volumen por si Railway lo entregó vacío
+    mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log
+    
+    # 2. Forzamos el owner para que SQL Server (mssql) pueda escribir sin Access Denied
+    chown -R 10001:0 /var/opt/mssql
+    chmod -R 770 /var/opt/mssql
+    
+    # 3. Solucionamos también el fallback log root
+    chown -R 10001:0 /log || true
+    
+    echo "Permisos arreglados ✅ Cediendo control al usuario 'mssql' (UID 10001)..."
+    
+    # 4. Re-ejecutamos este mismo script pero sin privilegios de root
+    exec gosu mssql "$0" "$@"
+fi
+
+# =========================================================================
+# A partir de este punto, el script siempre se ejecuta como 'mssql' (UID 10001).
+# =========================================================================
 
 # Función para propagar el apagado limpio (SIGTERM)
 function graceful_shutdown() {
@@ -28,10 +50,7 @@ function graceful_shutdown() {
 # 1. Atrapamos las señales de detención (Railway matando el contenedor)
 trap "graceful_shutdown" SIGINT SIGTERM
 
-# 1.3 Pre-crear directorios en caso de que el volumen de Railway haya montado
-# una carpeta completamente vacía y haya ocultado el RUN mkdir del Dockerfile:
-echo "Verificando/Creando directorios dentro del volumen montado..."
-mkdir -p /var/opt/mssql/data /var/opt/mssql/log /var/opt/mssql/backup /var/opt/mssql/secrets /log 2>/dev/null || true
+# (El paso 1.3 de pre-crear directorios ya fue manejado por el bloque ROOT de gosu arriba)
 
 # 1.5. Forzar las rutas correctas para evitar errores de permisos 
 # (Error: The log directory [/log] could not be created)
