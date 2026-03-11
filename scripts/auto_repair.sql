@@ -8,6 +8,17 @@
 
 SET NOCOUNT ON;
 
+-- ==========================================================
+-- 0. CONFIGURACIÓN DE MEMORIA DINÁMICA (2GB - 8GB)
+-- ==========================================================
+PRINT 'Configurando límites de memoria dinámica (Min: 2048MB, Max: 8192MB)...';
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+EXEC sp_configure 'min server memory (MB)', 2048;
+EXEC sp_configure 'max server memory (MB)', 8192;
+RECONFIGURE;
+GO
+
 DECLARE @DatabaseName NVARCHAR(128);
 DECLARE @SQL NVARCHAR(MAX);
 

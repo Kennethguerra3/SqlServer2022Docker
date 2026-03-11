@@ -66,9 +66,9 @@ ENV MSSQL_LOG_DIR="/var/opt/mssql/log"
 ENV MSSQL_BACKUP_DIR="/var/opt/mssql/backup"
 ENV MSSQL_SECRETS_DIR="/var/opt/mssql/secrets"
 
-# Limites de Memoria (3.5 GB máximo para el motor SQL - Protege contra OOMKills de Railway): 2GB→1500, 4GB→3500, 8GB→6000
+# Limites de Memoria (8 GB para el motor SQL - Protege contra OOMKills de Railway)
 # Sin límite, SQL Server toma el 90% de RAM y Railway mata el contenedor
-ENV MSSQL_MEMORY_LIMIT_MB=3500 \
+ENV MSSQL_MEMORY_LIMIT_MB=8192 \
     # TCP Keepalive: evita cortes de conexión desde Power BI / SSMS en la nube
     # Tiempo antes del primer paquete keep-alive (ms)
     MSSQL_TCP_KEEPALIVE=30000 \

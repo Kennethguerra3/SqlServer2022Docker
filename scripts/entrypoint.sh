@@ -61,13 +61,14 @@ alternateosync = 1
 [traceflag]
 traceflag0 = 3979
 traceflag1 = 1800
+traceflag2 = 3226
 EOF
 
 # Imprimir por consola para validar en Railway
 cat /var/opt/mssql/mssql.conf
 
-# Adicionalmente pasamos los traceflags globales al entorno (3979=I/O alternativo seguro, 1800=Optimización 4K para Ceph/NFS)
-export MSSQL_TRACE_FLAGS="3979,1800"
+# Adicionalmente pasamos los traceflags globales al entorno (3979=I/O alternativo seguro, 1800=Optimización 4K, 3226=Suprimir Logs Backup)
+export MSSQL_TRACE_FLAGS="3979,1800,3226"
 
 # 2. Iniciamos el motor de SQL en background
 echo "Iniciando SQL Server en segundo plano..."

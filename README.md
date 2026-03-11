@@ -4,6 +4,8 @@
 
 Configuración Docker lista para producción para desplegar **SQL Server 2022** en [Railway.app](https://railway.app), optimizada para estabilidad, compatibilidad y mantenimiento de bases de datos persistentes.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/sql-server-2022-en-railway-optimizado?referralCode=DFuuA2&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
 ---
 
 ## 🌍 Deploy and Host
@@ -98,8 +100,8 @@ Para que tus bases de datos no se borren cuando el contenedor se reinicie o se a
 En la configuración del servicio, ve a **Volumes**, haz clic en **Add Volume** y en el campo **Mount Path** coloca exactamente esto:
 
 ```text
-/var/opt/mssql
-```
+        /var/opt/mssql
+``` 
 
 Esta carpeta es donde residirán tus bases de datos (`data/`), archivos de registro (`log/`), backups (`backup/`) y secretos instalados en el contenedor.
 
@@ -423,6 +425,36 @@ docker exec <container_id> find /opt -name sqlcmd
 ### Conexión desde SSMS / Power BI cae
 
 Verificar que `MSSQL_TCP_KEEPALIVE=30000` esté activo. Si el problema persiste, configura también el keep-alive en el cliente de conexión.
+
+---
+
+# Deploy and Host
+
+## About Hosting
+
+Este proyecto está diseñado para ser alojado rápida y fácilmente en plataformas en la nube que soporten Docker, con un enfoque especial y optimizado para **Railway.app**. La configuración garantiza que el motor de base de datos se ejecute de forma estable, segura y con almacenamiento persistente.
+
+## Why Deploy
+
+Desplegar SQL Server en la nube te permite:
+- **Accesibilidad:** Conectar herramientas como Power BI, SSMS o aplicaciones frontend/backend desde cualquier lugar sin lidiar con redes locales cerradas.
+- **Cero Instalación Local:** No necesitas instalar motores pesados ni configurar servicios en cada máquina de trabajo.
+- **Escalabilidad y Flexibilidad:** Aumentar los recursos disponibles (RAM/CPU) según lo requiera el tráfico o el tamaño de los datos.
+
+## Common Use Cases
+
+- **Análisis y Business Intelligence:** Origen de datos en la nube para tableros de Power BI, Looker Studio y reportes centralizados.
+- **Backend de Aplicaciones:** Base de datos principal para sistemas web, APIs o aplicaciones móviles.
+- **Entornos de Pruebas (Staging/QA):** Espacio ágil para la réplica de bases de datos y la validación de software antes de pasar a producción.
+
+## Dependencies for
+
+### Deployment Dependencies
+
+Para desplegar este entorno correctamente, asegúrate de contar con:
+- Una cuenta activa en **Railway.app** (u otro proveedor de CaaS/PaaS compatible con Docker).
+- Un plan de nube o tier que pueda proporcionar al menos **1.5 GB a 2 GB de RAM** al contenedor (requerimiento mínimo práctico de este motor de SQL Server 2022).
+- Vinculación a GitHub, GitLab o uso de Railway CLI para efectuar el despliegue del contenedor.
 
 ---
 
