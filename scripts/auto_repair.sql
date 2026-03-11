@@ -1,24 +1,25 @@
 -- ==========================================================
 -- SCRIPT DE AUTO-REPARACIÓN DE BASES DE DATOS (NIVEL 3)
 -- ==========================================================
--- Este script se ejecuta en cada arranque del contenedor.
--- Busca BDs que estén en estado "SUSPECT" (Corruptas) y 
--- aplica un DBCC CHECKDB REPAIR_ALLOW_DATA_LOSS.
--- ¡ÚSESE BAJO SU PROPIO RIESGO, PUEDE HABER PÉRDIDA DE DATOS MENOR!
-
+-- Optimizado para "Modo Silencioso" en Railway.
 SET NOCOUNT ON;
 
--- ==========================================================
--- 0. CONFIGURACIÓN DE MEMORIA DINÁMICA (2GB - 8GB)
--- ==========================================================
-PRINT 'Configurando límites de memoria dinámica (Min: 2048MB, Max: 8192MB)...';
-EXEC sp_configure 'show advanced options', 1;
-RECONFIGURE;
-EXEC sp_configure 'min server memory (MB)', 2048;
-EXEC sp_configure 'max server memory (MB)', 8192;
-RECONFIGURE;
+-- 1. CONFIGURACIÓN DE MEMORIA DINÁMICA (Solo si es necesario)
+DECLARE @MinMem INT = 2048;
+DECLARE @MaxMem INT = 8192;
+
+IF EXISTS (SELECT 1 FROM sys.configurations WHERE name = 'min server memory (MB)' AND value_in_use <> @MinMem)
+   OR EXISTS (SELECT 1 FROM sys.configurations WHERE name = 'max server memory (MB)' AND value_in_use <> @MaxMem)
+BEGIN
+    EXEC sp_configure 'show advanced options', 1;
+    RECONFIGURE;
+    EXEC sp_configure 'min server memory (MB)', @MinMem;
+    EXEC sp_configure 'max server memory (MB)', @MaxMem;
+    RECONFIGURE;
+END
 GO
 
+SET NOCOUNT ON;
 DECLARE @DatabaseName NVARCHAR(128);
 DECLARE @SQL NVARCHAR(MAX);
 
@@ -33,8 +34,6 @@ FETCH NEXT FROM SuspectDBCursor INTO @DatabaseName;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    PRINT 'DETECTADA BASE DE DATOS CORRUPTA: ' + @DatabaseName + '... INTENTANDO REPARACIÓN DE EMERGENCIA.';
-
     -- 1. Ponerla en Emergency Mode
     SET @SQL = 'ALTER DATABASE [' + @DatabaseName + '] SET EMERGENCY;';
     EXEC sp_executesql @SQL;
@@ -43,14 +42,14 @@ BEGIN
     SET @SQL = 'ALTER DATABASE [' + @DatabaseName + '] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;';
     EXEC sp_executesql @SQL;
 
-    -- 3. Intentar Reparación (Perderá transacciones incompletas)
+    -- 3. Intentar Reparación
     SET @SQL = 'DBCC CHECKDB ([' + @DatabaseName + '], REPAIR_ALLOW_DATA_LOSS) WITH NO_INFOMSGS;';
     BEGIN TRY
         EXEC sp_executesql @SQL;
-        PRINT 'Reparación Finalizada para: ' + @DatabaseName;
     END TRY
     BEGIN CATCH
-        PRINT 'Error durante DBCC CHECKDB en: ' + @DatabaseName;
+        -- Solo loggeamos el error si ocurre algo crítico
+        PRINT '!!! Error crítico reparando: ' + @DatabaseName;
     END CATCH
 
     -- 4. Ponerla en Multi User
@@ -62,6 +61,5 @@ END
 
 CLOSE SuspectDBCursor;
 DEALLOCATE SuspectDBCursor;
-
-PRINT 'Revisión de auto-reparación finalizada sin detectar más BDs corruptas.';
 GO
+
