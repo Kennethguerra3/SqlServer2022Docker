@@ -81,6 +81,7 @@ ENV MSSQL_MEMORY_LIMIT_MB=8192 \
 # Copiamos primero los scripts de arranque y auto-reparación (Nivel 3)
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/auto_repair.sql /usr/local/bin/auto_repair.sql
+COPY scripts/auto_scale_memory.sh /usr/local/bin/auto_scale_memory.sh
 
 # Creamos la estructura de directorios con permisos correctos
 # para el usuario mssql (UID 10001) — todo en un solo RUN para minimizar capas
@@ -97,7 +98,8 @@ RUN mkdir -p /var/opt/mssql/data \
     && mkdir -p /.system \
     && chown -R 10001:0 /.system \
     && chmod -R 775 /.system \
-    && chmod +x /usr/local/bin/entrypoint.sh
+    && chmod +x /usr/local/bin/entrypoint.sh \
+    && chmod +x /usr/local/bin/auto_scale_memory.sh
 
 # ==========================================
 # 7. HEALTHCHECK (MONITOREO RELAJADO)

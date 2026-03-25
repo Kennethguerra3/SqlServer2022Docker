@@ -86,6 +86,9 @@ fi
 
 echo "Motor de base de datos listo."
 
+# Iniciar auto-escalador de memoria en background (Hack de Railway)
+/usr/local/bin/auto_scale_memory.sh &
+
 # Mantener el script vivo esperando por SQL Server
 wait "$pid"
 
