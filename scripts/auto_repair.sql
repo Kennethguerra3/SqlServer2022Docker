@@ -29,6 +29,17 @@ DECLARE SuspectDBCursor CURSOR FOR
     FROM sys.databases 
     WHERE state_desc = 'SUSPECT';
 
+-- Log de bases de datos sospechosas
+DECLARE @SuspectCount INT = (SELECT COUNT(*) FROM sys.databases WHERE state_desc = 'SUSPECT');
+IF @SuspectCount = 0
+BEGIN
+    PRINT 'No se detectaron bases de datos en estado SUSPECT.';
+END
+ELSE
+BEGIN
+    PRINT 'Detectadas ' + CAST(@SuspectCount AS NVARCHAR) + ' bases de datos en estado SUSPECT. Iniciando reparación...';
+END
+
 OPEN SuspectDBCursor;
 FETCH NEXT FROM SuspectDBCursor INTO @DatabaseName;
 
@@ -46,10 +57,11 @@ BEGIN
     SET @SQL = 'DBCC CHECKDB ([' + @DatabaseName + '], REPAIR_ALLOW_DATA_LOSS) WITH NO_INFOMSGS;';
     BEGIN TRY
         EXEC sp_executesql @SQL;
+        PRINT 'Reparación completada para: ' + @DatabaseName;
     END TRY
     BEGIN CATCH
         -- Solo loggeamos el error si ocurre algo crítico
-        PRINT '!!! Error crítico reparando: ' + @DatabaseName;
+        PRINT '!!! Error crítico reparando: ' + @DatabaseName + ' - ' + ERROR_MESSAGE();
     END CATCH
 
     -- 4. Ponerla en Multi User
@@ -57,6 +69,12 @@ BEGIN
     EXEC sp_executesql @SQL;
 
     FETCH NEXT FROM SuspectDBCursor INTO @DatabaseName;
+END
+
+-- Recomendación post-reparación
+IF @SuspectCount > 0
+BEGIN
+    PRINT 'Revisión manual recomendada para las bases de datos reparadas. Verifica integridad y realiza un backup.';
 END
 
 CLOSE SuspectDBCursor;

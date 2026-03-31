@@ -96,6 +96,15 @@ elif [ -f /scripts/auto_scale_memory.sh ]; then
     /scripts/auto_scale_memory.sh &
 fi
 
+# Iniciar limpieza automática de logs antiguos en background
+if [ -f /usr/local/bin/clean_old_logs.sh ]; then
+    chmod +x /usr/local/bin/clean_old_logs.sh
+    /usr/local/bin/clean_old_logs.sh &
+elif [ -f /scripts/clean_old_logs.sh ]; then
+    chmod +x /scripts/clean_old_logs.sh
+    /scripts/clean_old_logs.sh &
+fi
+
 # Mantener el script vivo esperando por SQL Server
 wait "$pid"
 
