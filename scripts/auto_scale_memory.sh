@@ -54,17 +54,17 @@ while true; do
   CPU_USAGE="$(top -b -n1 | awk '/sqlservr/ {print int($9); exit}')"
   CPU_USAGE="${CPU_USAGE:-0}"
 
-  echo "CPU sqlservr: ${CPU_USAGE}% | Estado actual: ${CURRENT_STATE}"
+  echo "CPU sqlservr: ${CPU_USAGE}% | Estado actual: ${CURRENT_STATE}" > /dev/null
 
   if [ "$CPU_USAGE" -lt "$CPU_THRESHOLD" ]; then
     if [ "$CURRENT_STATE" != "LOW" ]; then
-      echo "Carga baja: ajustando memoria a ${LOW_LIMIT} MB"
+      echo "Carga baja: ajustando memoria a ${LOW_LIMIT} MB" > /dev/null
       set_memory_limit "$LOW_LIMIT"
       CURRENT_STATE="LOW"
     fi
   else
     if [ "$CURRENT_STATE" != "HIGH" ]; then
-      echo "Carga alta: ajustando memoria a ${HIGH_LIMIT} MB"
+      echo "Carga alta: ajustando memoria a ${HIGH_LIMIT} MB" > /dev/null
       set_memory_limit "$HIGH_LIMIT"
       CURRENT_STATE="HIGH"
     fi
