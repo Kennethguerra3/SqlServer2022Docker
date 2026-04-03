@@ -55,6 +55,9 @@ defaultdumpdir = /var/opt/mssql/log
 writethrough = 1
 alternateosync = 1
 
+[errorlog]
+severitylevel = 3
+
 [traceflag]
 traceflag0 = 3979
 traceflag1 = 1800
@@ -62,9 +65,10 @@ traceflag2 = 3226
 traceflag3 = 1706
 traceflag4 = 2505
 traceflag5 = 3023
+traceflag6 = 3656
 EOF
 
-# Traceflags: 3979 (I/O), 1800 (4K), 3226 (Backup), 1706 (Agent), 2505 (DB warnings), 3023 (Backup/Restore), 3656 (Suppress Agent info msgs)
+# Traceflags: 3979 (I/O), 1800 (4K), 3226 (Backup), 1706 (Agent), 2505 (DB warnings), 3023 (Backup/Restore), 3656 (Suppress Agent info)
 export MSSQL_TRACE_FLAGS="3979,1800,3226,1706,2505,3023,3656"
 
 # 2. Iniciamos el motor de SQL en background
