@@ -64,8 +64,8 @@ traceflag4 = 2505
 traceflag5 = 3023
 EOF
 
-# Traceflags: 3979 (I/O), 1800 (4K), 3226 (Backup), 1706 (Agent), 2505 (DB warnings), 3023 (Backup/Restore messages)
-export MSSQL_TRACE_FLAGS="3979,1800,3226,1706,2505,3023"
+# Traceflags: 3979 (I/O), 1800 (4K), 3226 (Backup), 1706 (Agent), 2505 (DB warnings), 3023 (Backup/Restore), 3656 (Suppress Agent info msgs)
+export MSSQL_TRACE_FLAGS="3979,1800,3226,1706,2505,3023,3656"
 
 # 2. Iniciamos el motor de SQL en background
 /opt/mssql/bin/sqlservr &
