@@ -10,8 +10,9 @@ SQL_PORT="1433"
 
 LOW_LIMIT=2048
 HIGH_LIMIT=4096
-CPU_THRESHOLD=10
-CHECK_INTERVAL=300
+CPU_THRESHOLD=20
+CHECK_INTERVAL=600
+CONSECUTIVE_REQUIRED=2
 
 if [ -z "$SQL_PASS" ]; then
   exit 0
@@ -33,6 +34,7 @@ if [ -z "$SQLCMD_BIN" ]; then
 fi
 
 CURRENT_STATE="UNKNOWN"
+COUNTER=0
 
 set_memory_limit() {
   local limit="$1"
@@ -52,19 +54,24 @@ while true; do
   CPU_USAGE="$(top -b -n1 | awk '/sqlservr/ {print int($9); exit}')"
   CPU_USAGE="${CPU_USAGE:-0}"
 
-  echo "CPU sqlservr: ${CPU_USAGE}% | Estado actual: ${CURRENT_STATE}" > /dev/null
-
   if [ "$CPU_USAGE" -lt "$CPU_THRESHOLD" ]; then
-    if [ "$CURRENT_STATE" != "LOW" ]; then
-      echo "Carga baja: ajustando memoria a ${LOW_LIMIT} MB" > /dev/null
-      set_memory_limit "$LOW_LIMIT"
-      CURRENT_STATE="LOW"
-    fi
+    TARGET_STATE="LOW"
   else
-    if [ "$CURRENT_STATE" != "HIGH" ]; then
-      echo "Carga alta: ajustando memoria a ${HIGH_LIMIT} MB" > /dev/null
-      set_memory_limit "$HIGH_LIMIT"
-      CURRENT_STATE="HIGH"
+    TARGET_STATE="HIGH"
+  fi
+
+  if [ "$TARGET_STATE" = "$CURRENT_STATE" ]; then
+    COUNTER=0
+  else
+    COUNTER=$((COUNTER + 1))
+    if [ "$COUNTER" -ge "$CONSECUTIVE_REQUIRED" ]; then
+      if [ "$TARGET_STATE" = "LOW" ]; then
+        set_memory_limit "$LOW_LIMIT"
+      else
+        set_memory_limit "$HIGH_LIMIT"
+      fi
+      CURRENT_STATE="$TARGET_STATE"
+      COUNTER=0
     fi
   fi
 
