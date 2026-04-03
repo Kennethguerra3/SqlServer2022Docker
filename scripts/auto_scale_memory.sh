@@ -14,8 +14,7 @@ CPU_THRESHOLD=10
 CHECK_INTERVAL=300
 
 if [ -z "$SQL_PASS" ]; then
-  echo "Error: MSSQL_SA_PASSWORD no está definida"
-  exit 1
+  exit 0
 fi
 
 SQLCMD_BIN="$(command -v sqlcmd || true)"
@@ -30,8 +29,7 @@ if [ -z "$SQLCMD_BIN" ]; then
 fi
 
 if [ -z "$SQLCMD_BIN" ]; then
-  echo "Error: sqlcmd no fue encontrado"
-  exit 1
+  exit 0
 fi
 
 CURRENT_STATE="UNKNOWN"
@@ -47,7 +45,7 @@ set_memory_limit() {
     -Q "EXEC sp_configure 'show advanced options', 1;
         RECONFIGURE;
         EXEC sp_configure 'max server memory (MB)', ${limit};
-        RECONFIGURE;"
+        RECONFIGURE;" > /dev/null 2>&1
 }
 
 while true; do
