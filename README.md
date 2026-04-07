@@ -399,6 +399,65 @@ Estas variables ya están definidas en el `Dockerfile` y **no necesitan repetirs
 
 ---
 
+## ⏳ Optimización de Costos: Encendido y Apagado Automático (Cron)
+
+Para ahorrar RAM y evitar costos innecesarios en Railway cuando no usas la base de datos (por ejemplo, en las madrugadas), puedes automatizar el encendido y apagado usando un servicio gratuito como [cron-job.org](https://cron-job.org) para llamar a la API de Railway.
+
+**Importante:** Hemos implementado una solución mucho más estable usando Variables de Entorno. Al cambiar una variable mediante cron, Railway reinicia el contenedor y nuestro script bloquea el arranque pesado de SQL Server, dejando el contenedor consumiendo menos de 1 MB de RAM.
+
+### Pasos para configurarlo:
+
+1. **Obtener el Token y los IDs:**
+   - Ve a los ajustes de tu cuenta de Railway y genera de forma segura un **API Token**.
+   - Ingresa a tu servicio de SQL Server en Railway y fíjate en la URL de tu navegador web:
+     `https://railway.app/project/<AQUI_EL_PROJECT_ID>/service/<AQUI_EL_SERVICE_ID>?environmentId=<AQUI_EL_ENVIRONMENT_ID>`
+   - Copia tu `Project ID`, `Service ID` y `Environment ID`.
+
+2. **Crear Job de Apagado (Ej: 01:05 AM)**
+   - En cron-job.org, crea un cronjob. En la pestaña **COMMON** configura la hora deseada. Como URL pon `https://backboard.railway.app/graphql/v2`.
+   - En la pestaña **ADVANCED**, elige el método `POST`.
+   - Añade dos Headers (Cabeceras HTTP):
+     - `Authorization`: `Bearer TU_API_TOKEN` *(Importante: no olvides poner la palabra Bearer seguida de un espacio antes del token).*
+     - `Content-Type`: `application/json`
+   - En el cuadro *Request body* usa el siguiente JSON, que inyectará la variable `MSSQL_SUSPEND` en `true` para dormir el contenedor:
+     ```json
+     {
+       "query": "mutation variableUpsert($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+       "variables": {
+         "input": {
+           "projectId": "AQUI_TU_PROJECT_ID",
+           "environmentId": "AQUI_TU_ENVIRONMENT_ID",
+           "serviceId": "AQUI_TU_SERVICE_ID",
+           "name": "MSSQL_SUSPEND",
+           "value": "true"
+         }
+       }
+     }
+     ```
+
+3. **Crear Job de Encendido (Ej: 21:55 PM)**
+   - Repite el procedimiento pero asigna tu hora de apagado.
+   - Usa los mismos métodos y Headers a la misma URL.
+   - En el *Request body* pon casi el mismo JSON, pero cambia el value a `"false"`:
+     ```json
+     {
+       "query": "mutation variableUpsert($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+       "variables": {
+         "input": {
+           "projectId": "AQUI_TU_PROJECT_ID",
+           "environmentId": "AQUI_TU_ENVIRONMENT_ID",
+           "serviceId": "AQUI_TU_SERVICE_ID",
+           "name": "MSSQL_SUSPEND",
+           "value": "false"
+         }
+       }
+     }
+     ```
+
+> 🛡️ **Seguridad Garantizada:** Gracias a que nuestro script de inicio (`entrypoint.sh`) está configurado para capturar las señales de término, cuando Railway inyecta la variable y reinicia el servicio, obliga a SQL Server a ejecutar un cierre limpio (`SHUTDOWN WITH NOWAIT`). Tus bases de datos quedarán 100% seguras mientras el contenedor "duerme".
+
+---
+
 ## 🐛 Solución de Problemas
 
 ### Base de datos marcada como "Suspect" (Sospechosa)

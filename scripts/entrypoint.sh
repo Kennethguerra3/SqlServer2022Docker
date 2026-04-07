@@ -1,6 +1,16 @@
 #!/bin/bash
 # Nivel 3: Apagado Seguro y Auto-Reparación
 
+if [ "$MSSQL_SUSPEND" == "true" ] || [ "$MSSQL_SUSPEND" == "1" ]; then
+    echo "💤 Modo Suspensión Automática Activado (Cron)."
+    echo "El contenedor está durmiendo y consumirá casi 0 RAM."
+    echo "Para reanudar SQL Server, cambia MSSQL_SUSPEND a false o elimínala."
+    # Atrapamos SIGTERM para apagar limpio si Railway reinicia
+    trap 'exit 0' SIGINT SIGTERM
+    sleep infinity
+    exit 0
+fi
+
 echo "Arrancando contenedor de SQL Server..."
 
 # NOTA SOBRE PERMISOS DE VOLÚMENES EN RAILWAY:
