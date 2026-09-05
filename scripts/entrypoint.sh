@@ -37,14 +37,43 @@ echo "Permisos configurados. Iniciando SQL Server (Silent Mode)..."
 # Función para propagar el apagado limpio (SIGTERM)
 function graceful_shutdown() {
     echo "Recibida señal SIGTERM. Apagando SQL Server..."
-    
+
+    # ------------------------------------------------------------------
+    # POR QUE 'SHUTDOWN' Y NO 'SHUTDOWN WITH NOWAIT'
+    #
+    # Antes aqui habia 'SHUTDOWN WITH NOWAIT', que apaga sin hacer
+    # checkpoint en las bases y sin esperar transacciones. Consecuencia:
+    # el siguiente arranque tiene que hacer crash recovery de CADA base.
+    #
+    # Como el ciclo de encendido/apagado es programado (cron-job.org),
+    # eso significaba forzar recovery dos veces al dia, todos los dias.
+    # Y al fondo de una recovery fallida espera la reparacion destructiva.
+    #
+    # 'SHUTDOWN' a secas hace checkpoint en cada base y deja el siguiente
+    # arranque limpio. Solo si tarda demasiado (Railway manda SIGKILL tras
+    # su periodo de gracia) caemos al modo sucio, que es peor pero mejor
+    # que un SIGKILL a medias.
+    # ------------------------------------------------------------------
+    SHUTDOWN_TIMEOUT="${MSSQL_SHUTDOWN_TIMEOUT:-20}"
+
     if [ -n "$MSSQL_SA_PASSWORD" ]; then
-        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SHUTDOWN WITH NOWAIT" -C &> /dev/null
-        echo "SHUTDOWN ejecutado. 🛑"
+        echo "Intentando apagado limpio (checkpoint + shutdown, max ${SHUTDOWN_TIMEOUT}s)..."
+
+        if timeout "$SHUTDOWN_TIMEOUT" /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
+              -Q "SHUTDOWN"; then
+            echo "Apagado limpio completado. El proximo arranque no necesita recovery. ✅"
+        else
+            echo "El apagado limpio excedio ${SHUTDOWN_TIMEOUT}s. Forzando WITH NOWAIT. ⚠️"
+            echo "El proximo arranque hara crash recovery."
+            /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
+                -Q "SHUTDOWN WITH NOWAIT" 2>&1 || true
+        fi
     else
         kill -s TERM $pid
     fi
-    
+
     wait $pid
     exit 0
 }
@@ -94,29 +123,72 @@ for i in {1..60}; do
 done
 
 if [ "$i" -lt 60 ]; then
-    # Ejecutamos auto-reparación redirigiendo salida a /dev/null para no saturar Railway
-    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${MSSQL_SA_PASSWORD}" -C -i /usr/local/bin/auto_repair.sql &> /dev/null
+    # ------------------------------------------------------------------
+    # AUTO-REPARACION EN DOS NIVELES
+    #
+    # Antes aqui habia UNA sola llamada, con la salida a /dev/null, que
+    # aplicaba REPAIR_ALLOW_DATA_LOSS a cualquier base SUSPECT. Dos
+    # problemas: usaba la opcion destructiva incluso cuando el fallo era
+    # un permiso de volumen (el caso mas comun en Railway), y no dejaba
+    # rastro de haberlo hecho.
+    #
+    # Ahora: siempre corre la escalera no destructiva, con logs visibles.
+    # La destructiva es un archivo aparte que solo se invoca si tu lo
+    # autorizas explicitamente.
+    # ------------------------------------------------------------------
+    echo "Ejecutando auto-reparación no destructiva..."
+    /opt/mssql-tools18/bin/sqlcmd \
+        -S localhost -U sa -P "${MSSQL_SA_PASSWORD}" -C \
+        -i /usr/local/bin/auto_repair.sql 2>&1
+
+    if [ "$MSSQL_ALLOW_DATA_LOSS_REPAIR" == "true" ] || [ "$MSSQL_ALLOW_DATA_LOSS_REPAIR" == "1" ]; then
+        echo "⚠️  MSSQL_ALLOW_DATA_LOSS_REPAIR está activa: se permite reparación DESTRUCTIVA."
+        echo "⚠️  Recuerda apagarla en cuanto termines."
+        /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "${MSSQL_SA_PASSWORD}" -C \
+            -i /usr/local/bin/auto_repair_dataloss.sql 2>&1
+    fi
 fi
 
 echo "Motor de base de datos listo."
 
+# ----------------------------------------------------------------------
+# El auto-escalador de memoria se eliminó a propósito.
+#
+# Decidía el límite mirando el CPU, que no dice nada sobre la memoria:
+# un escaneo de Power BI es CPU bajo y memoria alta, así que encogía
+# justo cuando no debía. Y cada ajuste vaciaba el buffer pool, obligando
+# a releer del disco. SQL Server ya gestiona esto solo.
+#
+# Ahora el único dueño del límite es MSSQL_MEMORY_LIMIT_MB (Dockerfile),
+# que además aplica desde el primer segundo del arranque — antes, había
+# una ventana de 20 minutos en la que SQL creía tener 8 GB dentro de un
+# contenedor de 5 GB.
+# ----------------------------------------------------------------------
 
-# Iniciar auto-escalador de memoria en background (Hack de Railway)
-if [ -f /usr/local/bin/auto_scale_memory.sh ]; then
-    chmod +x /usr/local/bin/auto_scale_memory.sh
-    /usr/local/bin/auto_scale_memory.sh &
-elif [ -f /scripts/auto_scale_memory.sh ]; then
-    chmod +x /scripts/auto_scale_memory.sh
-    /scripts/auto_scale_memory.sh &
+# Limpieza periódica de logs y backups antiguos.
+if [ -f /usr/local/bin/clean_old_logs.sh ]; then
+    /usr/local/bin/clean_old_logs.sh &
+    echo "Limpieza automática de logs iniciada (cada 24h)."
+else
+    echo "AVISO: clean_old_logs.sh no está en la imagen. El volumen crecerá sin control."
 fi
 
-# Iniciar limpieza automática de logs antiguos en background
-if [ -f /usr/local/bin/clean_old_logs.sh ]; then
-    chmod +x /usr/local/bin/clean_old_logs.sh
-    /usr/local/bin/clean_old_logs.sh &
-elif [ -f /scripts/clean_old_logs.sh ]; then
-    chmod +x /scripts/clean_old_logs.sh
-    /scripts/clean_old_logs.sh &
+# ----------------------------------------------------------------------
+# Backup diario a Cloudflare R2.
+#
+# Esta instancia NUNCA tuvo un backup (msdb.dbo.backupset estaba vacía)
+# pese a guardar ~8.7 GB de datos de clientes. Esto lo resuelve.
+#
+# No usamos BACKUP TO URL nativo porque el conector S3 de SQL Server 2022
+# falla contra R2 con "error de sistema operativo 1359", sin más detalle.
+# El motor de backup sí funciona: respaldamos a disco y subimos con rclone.
+# ----------------------------------------------------------------------
+if [ -f /usr/local/bin/backup_to_r2.sh ]; then
+    /usr/local/bin/backup_to_r2.sh &
+    echo "Backup diario a R2 programado (${BACKUP_HOUR:-23}:${BACKUP_MINUTE:-40} hora local)."
+else
+    echo "AVISO: backup_to_r2.sh no está en la imagen. NO HAY BACKUPS."
 fi
 
 # Mantener el script vivo esperando por SQL Server

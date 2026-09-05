@@ -30,7 +30,25 @@ USER root
 
 # Instalamos sudo para poder arreglar permisos del volumen sin perder el flag PR_SET_DUMPABLE
 RUN apt-get update && \
-    apt-get install -y sudo && \
+    apt-get install -y sudo curl unzip && \
+    # ------------------------------------------------------------------
+    # ca-certificates: la imagen base es Ubuntu 20.04 y su bundle de CAs
+    # viene congelado desde que se publico el tag. Un bundle viejo hace
+    # que el handshake TLS contra endpoints modernos falle, y SQL Server
+    # lo reporta como "Error de sistema operativo 1359 (Error interno)"
+    # sin ningun detalle. Es sospechoso #1 del fallo de BACKUP TO URL.
+    # ------------------------------------------------------------------
+    apt-get install -y --reinstall ca-certificates && \
+    update-ca-certificates && \
+    # ------------------------------------------------------------------
+    # rclone: plan B para subir a R2. Binario estatico, sin dependencias.
+    # Se configura por variables de entorno (RCLONE_CONFIG_R2_*), asi que
+    # no queda ningun secreto dentro de la imagen.
+    # ------------------------------------------------------------------
+    curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip && \
+    unzip -j /tmp/rclone.zip '*/rclone' -d /usr/local/bin/ && \
+    chmod +x /usr/local/bin/rclone && \
+    rm -f /tmp/rclone.zip && \
     if [ ! -f /etc/sudoers.d/mssql ]; then \
         echo "mssql ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/chown, /usr/bin/chmod" > /etc/sudoers.d/mssql; \
         chmod 0440 /etc/sudoers.d/mssql; \
@@ -66,9 +84,26 @@ ENV MSSQL_LOG_DIR="/var/opt/mssql/log"
 ENV MSSQL_BACKUP_DIR="/var/opt/mssql/backup"
 ENV MSSQL_SECRETS_DIR="/var/opt/mssql/secrets"
 
-# Limites de Memoria (8 GB para el motor SQL - Protege contra OOMKills de Railway)
-# Sin límite, SQL Server toma el 90% de RAM y Railway mata el contenedor
-ENV MSSQL_MEMORY_LIMIT_MB=8192 \
+# ==========================================================
+# LIMITE DE MEMORIA — FUENTE UNICA DE VERDAD
+# ==========================================================
+# Antes esto estaba en 8192 MB mientras el contenedor en Railway
+# tiene un limite de 5000 MB. SQL Server arrancaba creyendo que
+# tenia 8 GB dentro de 5, y el maximo observado en 7 dias fue de
+# 4.9986 GB — exactamente el techo. Cada arranque bajo carga
+# estaba a un query pesado de un OOMKill, y un OOMKill deja bases
+# en recovery sucia, que es el escenario que dispara la reparacion.
+#
+# 3500 MB deja ~1.5 GB para memoria fuera del buffer pool (stacks
+# de hilos, buffers de backup) y el SO dentro del contenedor.
+#
+# Este es el UNICO lugar donde se configura la memoria. Se quitaron
+# el bloque sp_configure de auto_repair.sql y el auto_scale_memory.sh
+# porque los tres se pisaban entre si.
+#
+# Si cambias el limite del contenedor en Railway, ajusta este valor
+# a ~70% de ese numero.
+ENV MSSQL_MEMORY_LIMIT_MB=3500 \
     # TCP Keepalive: evita cortes de conexión desde Power BI / SSMS en la nube
     # Tiempo antes del primer paquete keep-alive (ms)
     MSSQL_TCP_KEEPALIVE=30000 \
@@ -79,9 +114,15 @@ ENV MSSQL_MEMORY_LIMIT_MB=8192 \
 # 6. SISTEMA DE ARCHIVOS Y SCRIPTS
 # ==========================================
 # Copiamos primero los scripts de arranque y auto-reparación (Nivel 3)
-COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY scripts/auto_repair.sql /usr/local/bin/auto_repair.sql
-COPY scripts/auto_scale_memory.sh /usr/local/bin/auto_scale_memory.sh
+# NOTA: clean_old_logs.sh faltaba en esta lista. El entrypoint lo buscaba
+# en /usr/local/bin y en /scripts, y como el Dockerfile no copiaba ni el
+# archivo ni el directorio, ninguna de las dos rutas existía dentro de la
+# imagen: la limpieza de logs y backups nunca corrió. De ahí los 11 GB.
+COPY scripts/entrypoint.sh              /usr/local/bin/entrypoint.sh
+COPY scripts/auto_repair.sql            /usr/local/bin/auto_repair.sql
+COPY scripts/auto_repair_dataloss.sql   /usr/local/bin/auto_repair_dataloss.sql
+COPY scripts/clean_old_logs.sh          /usr/local/bin/clean_old_logs.sh
+COPY scripts/backup_to_r2.sh            /usr/local/bin/backup_to_r2.sh
 
 # Creamos la estructura de directorios con permisos correctos
 # para el usuario mssql (UID 10001) — todo en un solo RUN para minimizar capas
@@ -99,7 +140,8 @@ RUN mkdir -p /var/opt/mssql/data \
     && chown -R 10001:0 /.system \
     && chmod -R 775 /.system \
     && chmod +x /usr/local/bin/entrypoint.sh \
-    && chmod +x /usr/local/bin/auto_scale_memory.sh
+    && chmod +x /usr/local/bin/clean_old_logs.sh \
+    && chmod +x /usr/local/bin/backup_to_r2.sh
 
 # ==========================================
 # 7. HEALTHCHECK (MONITOREO RELAJADO)

@@ -1,2 +1,14 @@
 # Railway Secrets (Local usage only)
 scripts/railway_secrets.ps1
+
+# Credenciales — nunca deben llegar al repo.
+# R2_ACCESS_KEY_ID.txt estaba SIN ignorar: un `git add .` lo habria
+# publicado en GitHub, y de ahi al build de Railway.
+R2_ACCESS_KEY_ID.txt
+*token*.txt
+*TOKEN*.txt
+*secret*
+*.key
+*.pem
+.env
+.env.*
