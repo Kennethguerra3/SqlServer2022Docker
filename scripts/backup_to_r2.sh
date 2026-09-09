@@ -16,9 +16,33 @@
 # RCLONE_CONFIG_R2_ACCESS_KEY_ID y el Access Key ID en el campo del secret).
 # rclone devolvia 401 en cada subida. La version anterior de este script
 # solo borraba el .bak local DESPUES de que la subida confirmara, asi que
-# cada backup se quedaba en el volumen. Ademas el ciclo se disparo en bucle
-# y escribio 43 copias de 790 MB en 80 minutos: 46 GB de volumen a 0 libres,
-# y a partir de ahi todo backup nuevo salia truncado (8 KB, 95 MB...).
+# cada backup se quedaba en el volumen.
+#
+# Y habia un segundo fallo, independiente y mas grave, que tardo en verse:
+# un BUCLE INFINITO al recorrer la lista de bases. El patron era este:
+#
+#     while IFS= read -r db; do
+#         respaldar_una "$db"        # <-- aqui dentro se llama a sqlcmd
+#     done <<< "$dbs"
+#
+# El here-string (<<<) es un descriptor de entrada que el bucle comparte con
+# todo lo que lance dentro. sqlcmd toca ese descriptor y le deja la posicion
+# al principio, asi que el siguiente 'read' vuelve a leer la PRIMERA linea.
+# Para siempre. Comprobado en el contenedor: 6.174 iteraciones con el mismo
+# valor antes de tumbar la conexion.
+#
+# Dos consecuencias, y la segunda es peor que la primera:
+#
+#   a) Se respaldaba la primera base una y otra vez cada ~2 minutos. Asi se
+#      escribieron 43 copias de 790 MB en 80 minutos, dejando el volumen de
+#      46 GB a 0 libres. A partir de ahi todo backup salia truncado.
+#   b) EL BUCLE NUNCA PASABA DE LA PRIMERA BASE. De 6 bases de datos, 5 no
+#      se respaldaron jamas. El log decia "OK=1 FALLOS=0" y parecia sano.
+#
+# La solucion es no depender del stdin para iterar: la lista se vuelca a un
+# array ANTES de respaldar nada, y se recorre con un for. Ademas sqlcmd y
+# rclone reciben < /dev/null, para que ningun hijo pueda volver a tocar la
+# entrada de un bucle.
 #
 # Las cuatro defensas que se agregaron, cada una corta el fallo en un punto:
 #
@@ -134,7 +158,9 @@ if [ "$R2_LISTO" -eq 1 ]; then
     fi
 fi
 
-sql() { "$SQLCMD" -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -h -1 -W "$@"; }
+# El < /dev/null NO es decorativo: sin el, sqlcmd se come la entrada de
+# cualquier bucle que lo llame. Ver la explicacion del bucle infinito arriba.
+sql() { "$SQLCMD" -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -h -1 -W "$@" < /dev/null; }
 
 # --- Rotacion local --------------------------------------------------------
 # Se ejecuta SIEMPRE, suba o no suba a R2. Esta es la defensa que faltaba:
@@ -261,7 +287,7 @@ respaldar_una() {
     fi
 
     if rclone copyto "$file" "r2:${BUCKET}/${db}/${db}_${stamp}.bak" \
-            --s3-no-check-bucket --retries 3 --low-level-retries 5 2>&1 | sed 's/^/[backup-r2]   rclone: /'; then
+            --s3-no-check-bucket --retries 3 --low-level-retries 5 < /dev/null 2>&1 | sed 's/^/[backup-r2]   rclone: /'; then
         log "  ${db}: subido a R2."
         # Ya esta en la nube, pero conservamos la copia local mas reciente:
         # restaurar desde el volumen es inmediato y no depende de la red.
@@ -279,24 +305,34 @@ respaldar_todo() {
     log "=== Inicio del ciclo de backup ==="
     mkdir -p "$BACKUP_DIR"
 
-    local dbs
-    dbs="$(sql -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc = 'ONLINE' AND is_read_only = 0;" 2>/dev/null | tr -d '\r' | grep -v '^$')"
+    local lista
+    lista="$(sql -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc = 'ONLINE' AND is_read_only = 0;" 2>/dev/null | tr -d '\r' | grep -v '^$')"
 
-    if [ -z "$dbs" ]; then
+    if [ -z "$lista" ]; then
         log "No se pudo listar bases (SQL Server no responde?). Se omite este ciclo."
         return 1
     fi
 
-    local ok=0 fail=0
-    while IFS= read -r db; do
-        [ -z "$db" ] && continue
+    # La lista se vuelca a un array ANTES de respaldar nada. Este bucle si
+    # puede usar el here-string porque dentro no se lanza ningun proceso que
+    # pueda tocar la entrada. El de abajo, que si respalda, ya no la usa.
+    local -a dbs=()
+    local linea
+    while IFS= read -r linea; do
+        [ -n "$linea" ] && dbs+=("$linea")
+    done <<< "$lista"
+
+    log "Bases encontradas: ${#dbs[@]} -> ${dbs[*]}"
+
+    local ok=0 fail=0 db
+    for db in "${dbs[@]}"; do
         if respaldar_una "$db"; then ok=$((ok+1)); else fail=$((fail+1)); fi
-    done <<< "$dbs"
+    done
 
     # Retencion en R2
     if [ "$R2_LISTO" -eq 1 ] && [ "$fail" -eq 0 ]; then
         log "Aplicando retencion de ${RETENTION} dias en R2..."
-        rclone delete "r2:${BUCKET}" --min-age "${RETENTION}d" 2>&1 | sed 's/^/[backup-r2]   rclone: /'
+        rclone delete "r2:${BUCKET}" --min-age "${RETENTION}d" < /dev/null 2>&1 | sed 's/^/[backup-r2]   rclone: /'
     fi
 
     log "=== Fin. OK=${ok} FALLOS=${fail} ==="
@@ -347,9 +383,10 @@ segundos_hasta_proxima() {
         objetivo="$(date -d "tomorrow ${HOUR}:${MINUTE}" +%s 2>/dev/null)"
     fi
     # Si 'date' fallara, objetivo queda vacio y la resta daria un negativo
-    # que 'sleep' rechaza, dejando el bucle girando sin pausa. Ese giro es
-    # exactamente lo que escribio 43 backups en 80 minutos. Ante la duda,
-    # una hora de espera: se pierde precision, no el disco.
+    # que 'sleep' rechaza, dejando este bucle girando sin pausa. No fue la
+    # causa del incidente (esa fue el here-string, ver cabecera), pero es un
+    # camino real al mismo sintoma. Ante la duda, una hora de espera: se
+    # pierde precision, no el disco.
     if [ -z "$objetivo" ]; then
         log "AVISO: no pude calcular la proxima hora de backup. Espero 1h."
         echo 3600
