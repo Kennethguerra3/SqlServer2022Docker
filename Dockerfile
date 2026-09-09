@@ -123,6 +123,11 @@ COPY scripts/auto_repair.sql            /usr/local/bin/auto_repair.sql
 COPY scripts/auto_repair_dataloss.sql   /usr/local/bin/auto_repair_dataloss.sql
 COPY scripts/clean_old_logs.sh          /usr/local/bin/clean_old_logs.sh
 COPY scripts/backup_to_r2.sh            /usr/local/bin/backup_to_r2.sh
+# emergency_cleanup.sh tenia el mismo problema que clean_old_logs.sh: el
+# README mandaba ejecutarlo desde /var/opt/mssql/scripts/, una ruta que no
+# existe (los scripts van a /usr/local/bin) y ademas quedaria dentro del
+# volumen. Resultado: el comando de rescate fallaba justo cuando hacia falta.
+COPY scripts/emergency_cleanup.sh       /usr/local/bin/emergency_cleanup.sh
 
 # Creamos la estructura de directorios con permisos correctos
 # para el usuario mssql (UID 10001) — todo en un solo RUN para minimizar capas
@@ -141,7 +146,8 @@ RUN mkdir -p /var/opt/mssql/data \
     && chmod -R 775 /.system \
     && chmod +x /usr/local/bin/entrypoint.sh \
     && chmod +x /usr/local/bin/clean_old_logs.sh \
-    && chmod +x /usr/local/bin/backup_to_r2.sh
+    && chmod +x /usr/local/bin/backup_to_r2.sh \
+    && chmod +x /usr/local/bin/emergency_cleanup.sh
 
 # ==========================================
 # 7. HEALTHCHECK (MONITOREO RELAJADO)
