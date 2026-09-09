@@ -9,7 +9,7 @@ La mayoría de las imágenes de SQL Server para contenedores te dejan a mitad de
 ## ✨ Qué la diferencia
 
 **🔐 Backups diarios y verificados**
-Respalda todas tus bases comprimidas, **verifica cada archivo** con `RESTORE VERIFYONLY`, y lo sube a Cloudflare R2. Solo borra la copia local cuando la subida se confirmó. Con retención automática configurable.
+Respalda todas tus bases comprimidas, **verifica cada archivo** con `RESTORE VERIFYONLY`, y lo sube a Cloudflare R2. Corre una sola vez al día, y las copias locales están acotadas por número y por porcentaje del volumen: **los backups no pueden llenarte el disco**, configures R2 o no.
 
 **🛡️ Reparación que no destruye datos**
 Si una base queda en estado `SUSPECT`, intenta recuperarla en tres niveles — todos no destructivos. La opción que borra páginas corruptas existe, pero **requiere que tú la autorices con una variable**. Nunca se ejecuta sola.
@@ -113,7 +113,7 @@ Railway te devuelve un host y un puerto públicos. En SSMS se escriben separados
 
 ### Backups a R2 (opcional)
 
-Si las omites, el backup se hace igual pero se queda en el volumen.
+Si las omites, el backup se hace igual pero se queda en el volumen, limitado a 3 copias y al 25% del disco. **No se te llena el volumen por no configurar esto.**
 
 | Variable | Ejemplo |
 |---|---|
@@ -122,8 +122,10 @@ Si las omites, el backup se hace igual pero se queda en el volumen.
 | `RCLONE_CONFIG_R2_PROVIDER` | `Cloudflare` |
 | `RCLONE_CONFIG_R2_REGION` | `auto` |
 | `RCLONE_CONFIG_R2_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
-| `RCLONE_CONFIG_R2_ACCESS_KEY_ID` | *(token de R2)* |
-| `RCLONE_CONFIG_R2_SECRET_ACCESS_KEY` | *(token de R2)* |
+| `RCLONE_CONFIG_R2_ACCESS_KEY_ID` | *(32 caracteres, del token de R2)* |
+| `RCLONE_CONFIG_R2_SECRET_ACCESS_KEY` | *(**64** caracteres, del token de R2)* |
+
+> 🛑 **El error que más veces rompe esto.** El Account ID y el Access Key ID miden **ambos 32 caracteres** y son indistinguibles a simple vista. El Account ID va **solo** dentro del `ENDPOINT`, nunca como credencial. **El Secret es el único de 64 caracteres**: si el tuyo mide 32, está mal. Con los valores cruzados, R2 responde `401` en cada subida, los backups se quedan en el volumen y nada te avisa hasta que el disco se llena.
 | `BACKUP_HOUR` / `BACKUP_MINUTE` | `23` / `40` |
 | `BACKUP_RETENTION_DAYS` | `30` |
 
@@ -146,6 +148,56 @@ Si vas a guardar datos reales de clientes, cambia `MSSQL_PID`:
 | `Standard` | Licencia de pago | Sin límites prácticos |
 
 No es una sugerencia técnica, es una obligación legal.
+
+---
+
+## 🔴 Si el volumen se llena (> 90%)
+
+SQL Server **deja de funcionar** cuando el volumen está lleno. Los síntomas:
+
+- Las conexiones tardan o se cuelgan
+- No puedes insertar, actualizar o crear bases nuevas
+- Los backups fallan
+
+### Qué hacer ahora
+
+**Opción 1: Limpieza de emergencia (30 segundos)**
+
+En tu servicio → Terminal, copia esto:
+
+```bash
+bash /usr/local/bin/emergency_cleanup.sh
+```
+
+Elimina logs > 3 días, backups > 3 días y transaction logs antiguos. **No afecta tus bases.**
+
+**Opción 2: Ajustar variables (permanente)**
+
+Ve a **Variables** y pon:
+
+```
+CLEAN_RETENTION_DAYS=3
+CLEAN_BACKUP_RETENTION_DAYS=3
+CLEAN_INTERVAL_SECONDS=43200
+```
+
+Esto limpia cada 12 horas en lugar de cada 24 horas, y descarta logs más viejos.
+
+**Opción 3: Activar backups a R2 (recomendado)**
+
+No es una solución de espacio — las copias locales ya están acotadas — sino de **seguridad**. Saca tus datos del único disco donde viven hoy: si el volumen se pierde o se corrompe, es la diferencia entre restaurar y empezar de cero. Gratis hasta 10 GB.
+
+**Opción 4: Aumentar el volumen**
+
+Si después de limpiar sigue siendo pequeño: **Settings → Resources → Storage**, aumenta de X a X+20 GB.
+
+### Por qué se llena
+
+1. **Transaction logs sin rotación** — la causa más habitual. Si una base está en modo `FULL` y nadie hace backups **del log**, el `.ldf` crece sin techo. Compruébalo con `SELECT name, recovery_model_desc FROM sys.databases;` y pásala a `SIMPLE` si no necesitas restaurar a un momento exacto del día.
+2. **Logs de SQL Server** — se generan continuamente. Con `CLEAN_RETENTION_DAYS=7` (default), ocupan bastante.
+3. **Los datos, sencillamente** — mira el reparto real con `du -sh /var/opt/mssql/*`.
+
+> **Los backups ya no están en esta lista.** Están acotados por número de copias y por porcentaje del volumen, tengas R2 o no.
 
 ---
 

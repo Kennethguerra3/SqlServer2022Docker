@@ -205,13 +205,16 @@ Sin backups, si el volumen se corrompe o borras algo por error, no hay vuelta at
 
 Todos los días a la hora que configures, el contenedor:
 
-1. Respalda cada base de datos, comprimida (ocupa ~5 veces menos)
-2. **Verifica** que el archivo de backup sea válido
-3. Lo sube a Cloudflare R2
-4. Borra la copia local **solo si la subida se confirmó**
-5. Elimina de R2 los backups más viejos que los días que configures
+1. Rota las copias locales antiguas para dejar sitio
+2. Comprueba que quede disco libre suficiente; si no queda, **no respalda**
+3. Respalda cada base de datos, comprimida (ocupa ~5 veces menos)
+4. **Verifica** que el archivo de backup sea válido
+5. Lo sube a Cloudflare R2, si lo configuraste
+6. Elimina de R2 los backups más viejos que los días que configures
 
-Si cualquier paso falla, el archivo se queda en el volumen y el error aparece en los logs. **Nunca borra algo que no llegó a destino.**
+Corre **una sola vez al día**, aunque el contenedor se reinicie varias veces.
+
+> ⚠️ Un `.bak` a medio escribir no sirve para restaurar y sí ocupa disco. Por eso, si el backup falla o Railway apaga el contenedor a mitad de camino, el archivo incompleto **se borra** en lugar de quedarse ocupando espacio.
 
 ### Configurarlo, paso a paso
 
@@ -273,6 +276,20 @@ En `RCLONE_CONFIG_R2_ENDPOINT` reemplaza `TU_ACCOUNT_ID` por lo que copiaste en 
 https://5a439b04d2defeef988bd221415bf1b4.r2.cloudflarestorage.com
 ```
 
+> 🛑 **Lee esto antes de guardar. Es el error que más veces rompe esta configuración.**
+>
+> Vas a manejar **tres** cadenas de letras y números que se parecen muchísimo. Dos de ellas miden exactamente 32 caracteres, así que a simple vista son indistinguibles:
+>
+> | Valor | Largo | Dónde va |
+> |---|---|---|
+> | **Account ID** | 32 | **Solo** dentro de `RCLONE_CONFIG_R2_ENDPOINT` |
+> | **Access Key ID** | 32 | `RCLONE_CONFIG_R2_ACCESS_KEY_ID` |
+> | **Secret Access Key** | **64** | `RCLONE_CONFIG_R2_SECRET_ACCESS_KEY` |
+>
+> **El Secret es el único de 64 caracteres.** Si lo que pegaste ahí mide 32, está mal, sin excepción. Esa única comprobación evita el fallo entero.
+>
+> El Account ID **nunca** va como credencial: solo forma parte de la URL del endpoint. Si lo pones como Access Key, R2 responde `401 Unauthorized` en cada subida y los backups se quedan en el volumen sin que nada lo anuncie.
+
 **E) Elegir la hora**
 
 | Variable | Por defecto | Qué es |
@@ -297,13 +314,34 @@ Al día siguiente, mira los **Deploy Logs**. Deberías ver:
 
 Y en el bucket de Cloudflare deberías ver una carpeta por cada base con el archivo `.bak` dentro.
 
-**Si NO pusiste las credenciales**, verás esto — y no es un error, es un aviso:
+### Si NO configuras R2
+
+No pasa nada malo y **no tienes que hacer nada**. Verás este aviso en los logs, que no es un error:
 
 ```text
-[backup-r2] AVISO: faltan credenciales de R2. Los backups se haran SOLO en local.
+[backup-r2] Sin R2 configurado: los backups se quedan en el volumen, pero acotados.
+[backup-r2] Sirven ante un borrado por error; NO ante la perdida del volumen.
+[backup-r2] Limite local: 3 copias como maximo, y nunca mas del 25% del
+[backup-r2] volumen. Colchon libre exigido: 1024 MB. Con estos dos
+[backup-r2] topes, los backups no pueden llenar el disco aunque R2 nunca funcione.
 ```
 
-El backup se hace igual, pero se queda dentro del volumen. Sirve para recuperar de un error humano, pero no te salva si el volumen se pierde.
+El backup se sigue haciendo, pero se queda dentro del volumen. Te salva de un borrado por error o de una tabla que alguien vació sin querer. **No te salva si el volumen se pierde**, porque la copia vive en el mismo disco que la base.
+
+**Tu volumen no se puede llenar por culpa de los backups.** Hay dos topes que actúan siempre, tengas R2 o no:
+
+| Tope | Por defecto | Qué hace |
+|---|---|---|
+| Número de copias | 3 | Al crear una nueva, borra las que sobren |
+| Porcentaje del volumen | 25% | Si la carpeta de backups pasa de ahí, borra de la más vieja hacia adelante |
+
+El tope porcentual es el que de verdad protege, y por una razón concreta: un límite de "3 copias" no significa nada si cada copia pesa 1 GB y tu volumen tiene 5 GB. Al medirse contra el disco real, el porcentaje se ajusta solo a cualquier tamaño de base y de volumen.
+
+Además, antes de cada backup se comprueba que quede disco libre. Ese colchón **también escala con tu volumen** (5%, entre 256 MB y 2 GB): un colchón fijo de 2 GB sería sensato en un disco de 50 GB y absurdo en uno de 5, donde bloquearía el backup para siempre.
+
+Y nunca se borra la última copia que queda: quedarse sin ningún backup es peor que tener el disco algo justo.
+
+> 💡 Aun así, **configura R2 si tus datos importan**. Es gratis hasta 10 GB y es la diferencia entre perder una tabla y perderlo todo.
 
 ### Cómo restaurar un backup
 
@@ -435,7 +473,13 @@ Deja al menos **30 minutos** entre el backup y el apagado. Ejemplo que funciona 
 
 ### Las de backup
 
-Ver la sección de [backups](#-backups-automáticos).
+Las siete de R2 y las de horario están en la sección de [backups](#-backups-automáticos). Estas tres controlan cuánto sitio ocupan las copias locales y casi nunca hace falta tocarlas:
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `MAX_LOCAL_BACKUPS` | `3` | Copias que se conservan en el volumen. |
+| `BACKUP_MAX_PCT` | `25` | Techo de la carpeta de backups, en % del volumen. Es el tope que impide que el disco se llene. |
+| `MIN_FREE_MARGIN_MB` | *automático* | Disco libre exigido antes de respaldar. Si no la defines, se calcula como el 5% del volumen, entre 256 MB y 2 GB. Defínela solo si sabes que necesitas otro valor. |
 
 ### La que NO debes poner
 
@@ -523,14 +567,69 @@ Aparece si intentas usar `BACKUP TO URL` nativo de SQL Server contra Cloudflare 
 
 Tu cron de apagado dispara antes de que termine. Sepáralos al menos 30 minutos.
 
-### «El disco se llena»
+### «El disco se llena (volumen > 90%)»
 
-1. Verifica en los logs que aparezca `Limpieza automática de logs iniciada`
-2. Si tienes bases en modo de recuperación `FULL` sin backups de log, el archivo de log crece sin parar. O programas backups de log, o las pasas a `SIMPLE`:
+**Los backups ya no pueden causar esto**, tengas R2 o no: están acotados por número de copias y por porcentaje del volumen. Si el disco se llena, mira primero estos dos sospechosos:
+
+**1. El archivo de log de una base (`.ldf`) creciendo sin control.** Es la causa más común y no tiene nada que ver con los backups. Si una base está en modo de recuperación `FULL` y nadie hace backups **del log**, ese archivo crece para siempre. Compruébalo:
+
+```sql
+SELECT name, recovery_model_desc FROM sys.databases;
+```
+
+Si ves `FULL` y no estás haciendo backups de log a propósito, `SIMPLE` es lo que quieres para la mayoría de los casos:
 
 ```sql
 ALTER DATABASE [MiBase] SET RECOVERY SIMPLE;
 ```
+
+> ⚠️ En `SIMPLE` pierdes la restauración a un momento exacto del día: solo puedes volver al último backup completo. Para la mayoría de proyectos es el intercambio correcto, pero decídelo tú.
+
+**2. Los datos, sencillamente.** Mira dónde está el espacio:
+
+```bash
+du -sh /var/opt/mssql/*
+```
+
+**Otras causas:** logs de SQL Server o memory dumps acumulados.
+
+**Solución rápida (limpieza de emergencia):**
+
+1. Ve a **Railway** → tu servicio → pestaña **Terminal**
+2. Copia y pega esto:
+   ```bash
+   bash /usr/local/bin/emergency_cleanup.sh
+   ```
+3. Espera a que termine. Te dirá cuánto espacio liberó.
+
+**Solución permanente:**
+
+Ajusta las variables de limpieza automática en Railway → tu servicio → Variables:
+
+```
+CLEAN_RETENTION_DAYS=3          (limpia logs > 3 días, en lugar de 7)
+CLEAN_BACKUP_RETENTION_DAYS=3   (limpia backups > 3 días)
+CLEAN_INTERVAL_SECONDS=43200    (ejecuta limpieza cada 12h, no cada 24h)
+```
+
+**Razón de la acumulación:**
+
+Hay tres causas habituales:
+
+1. **Bases en modo `FULL` sin backups de log:** el transaction log crece sin parar
+   - Solución: pasa la base a modo `SIMPLE` (solo para desarrollo):
+     ```sql
+     ALTER DATABASE [MiBase] SET RECOVERY SIMPLE;
+     ```
+   - O: programa backups de log cada 15 minutos
+
+2. **Backups sin enviar a R2:** si tienes datos importantes, configura la sección [Backups automáticos](#-backups-automáticos). Los backups se suben a Cloudflare R2 y se borran del volumen local, ahorrando 50-70% de espacio.
+
+3. **La limpieza automática no está corriendo:** verifica en Deploy Logs que veas:
+   ```
+   Limpieza automática de logs iniciada (cada 24h).
+   ```
+   Si no ves ese mensaje, revisa que `CLEAN_INTERVAL_SECONDS` esté definida.
 
 ### «Power BI corta la conexión sola»
 
