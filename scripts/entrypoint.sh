@@ -67,12 +67,23 @@ function graceful_shutdown() {
     if [ -n "$MSSQL_SA_PASSWORD" ]; then
         echo "Intentando apagado limpio (checkpoint + shutdown, max ${SHUTDOWN_TIMEOUT}s)..."
 
-        if timeout "$SHUTDOWN_TIMEOUT" /opt/mssql-tools18/bin/sqlcmd \
-              -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
-              -Q "SHUTDOWN"; then
+        # El codigo de salida de sqlcmd no sirve para saber si funciono:
+        # SQL Server corta la conexion al apagarse y sqlcmd sale con error
+        # aunque el SHUTDOWN haya ido bien. Lo que cuenta es si el proceso
+        # sqlservr termino.
+        timeout "$SHUTDOWN_TIMEOUT" /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
+            -Q "SHUTDOWN" > /dev/null 2>&1
+        rc=$?
+        for _ in $(seq 1 10); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+        done
+
+        if ! kill -0 "$pid" 2>/dev/null; then
             echo "Apagado limpio completado. El proximo arranque no necesita recovery. ✅"
         else
-            echo "El apagado limpio excedio ${SHUTDOWN_TIMEOUT}s. Forzando WITH NOWAIT. ⚠️"
+            echo "SQL Server sigue vivo tras el SHUTDOWN (sqlcmd rc=${rc}). Forzando WITH NOWAIT. ⚠️"
             echo "El proximo arranque hara crash recovery."
             /opt/mssql-tools18/bin/sqlcmd \
                 -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
