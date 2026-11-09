@@ -5,9 +5,14 @@ if [ "$MSSQL_SUSPEND" == "true" ] || [ "$MSSQL_SUSPEND" == "1" ]; then
     echo "💤 Modo Suspensión Automática Activado (Cron)."
     echo "El contenedor está durmiendo y consumirá casi 0 RAM."
     echo "Para reanudar SQL Server, cambia MSSQL_SUSPEND a false o elimínala."
-    # Atrapamos SIGTERM para apagar limpio si Railway reinicia
-    trap 'exit 0' SIGINT SIGTERM
-    sleep infinity
+    # Atrapamos SIGTERM para apagar limpio si Railway reinicia.
+    # 'sleep' va en segundo plano y esperamos con 'wait': bash no ejecuta
+    # un trap mientras espera a un comando en primer plano, pero 'wait'
+    # sí se interrumpe con la señal. Sin esto Railway terminaba con SIGKILL.
+    trap 'kill "$sleep_pid" 2>/dev/null; exit 0' SIGINT SIGTERM
+    sleep infinity &
+    sleep_pid=$!
+    wait "$sleep_pid"
     exit 0
 fi
 
@@ -54,7 +59,10 @@ function graceful_shutdown() {
     # su periodo de gracia) caemos al modo sucio, que es peor pero mejor
     # que un SIGKILL a medias.
     # ------------------------------------------------------------------
-    SHUTDOWN_TIMEOUT="${MSSQL_SHUTDOWN_TIMEOUT:-20}"
+    # Debe ser menor que RAILWAY_DEPLOYMENT_DRAINING_SECONDS (120 en
+    # Railway). Si Railway corta antes, el apagado nunca es limpio: con
+    # el valor por defecto de Railway el contenedor moria a los 4-9 s.
+    SHUTDOWN_TIMEOUT="${MSSQL_SHUTDOWN_TIMEOUT:-90}"
 
     if [ -n "$MSSQL_SA_PASSWORD" ]; then
         echo "Intentando apagado limpio (checkpoint + shutdown, max ${SHUTDOWN_TIMEOUT}s)..."
@@ -115,14 +123,16 @@ export MSSQL_TRACE_FLAGS="3979,1800,3226,1706,2505,3023,3656"
 pid=$!
 
 # Esperar a que SQL Server inicie de forma silenciosa
+sql_ready=0
 for i in {1..60}; do
     if /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${MSSQL_SA_PASSWORD}" -Q "SELECT 1" -C -t 1 &> /dev/null; then
+        sql_ready=1
         break
     fi
     sleep 1
 done
 
-if [ "$i" -lt 60 ]; then
+if [ "$sql_ready" -eq 1 ]; then
     # ------------------------------------------------------------------
     # AUTO-REPARACION EN DOS NIVELES
     #

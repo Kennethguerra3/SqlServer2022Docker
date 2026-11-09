@@ -20,26 +20,49 @@ SET NOCOUNT ON;
 
 PRINT '[auto_repair] === Revision de estado de bases de datos ===';
 
+-- ----------------------------------------------------------
+-- Las bases en RECOVERING estan haciendo su recuperacion normal
+-- tras un apagado brusco: no estan dañadas. Tocarlas (SET ONLINE,
+-- EMERGENCY, CHECKDB) en ese momento las interrumpe. Esperamos
+-- hasta 5 minutos a que terminen; las que sigan en RECOVERING se
+-- dejan en paz porque no entran en el filtro de abajo.
+-- Solo se reparan estados que SQL Server no resuelve solo:
+-- SUSPECT, RECOVERY_PENDING y EMERGENCY. OFFLINE y RESTORING
+-- suelen ser intencionales y tampoco se tocan.
+-- ----------------------------------------------------------
+DECLARE @EsperaSeg INT = 0;
+WHILE EXISTS (SELECT 1 FROM sys.databases
+              WHERE database_id > 4 AND state_desc = 'RECOVERING')
+      AND @EsperaSeg < 300
+BEGIN
+    IF @EsperaSeg % 30 = 0
+        PRINT '[auto_repair] Esperando a que terminen las bases en RECOVERING...';
+    WAITFOR DELAY '00:00:05';
+    SET @EsperaSeg += 5;
+END
+IF EXISTS (SELECT 1 FROM sys.databases WHERE database_id > 4 AND state_desc = 'RECOVERING')
+    PRINT '[auto_repair] Aun hay bases en RECOVERING tras 5 min. No se tocan.';
+
 DECLARE @Bad INT = (
     SELECT COUNT(*) FROM sys.databases
-    WHERE state_desc <> 'ONLINE' AND database_id > 4
+    WHERE state_desc IN ('SUSPECT', 'RECOVERY_PENDING', 'EMERGENCY') AND database_id > 4
 );
 
 IF @Bad = 0
 BEGIN
-    PRINT '[auto_repair] Todas las bases de usuario estan ONLINE. Nada que hacer.';
+    PRINT '[auto_repair] Ninguna base de usuario dañada. Nada que hacer.';
 END
 ELSE
 BEGIN
     PRINT '[auto_repair] ATENCION: ' + CAST(@Bad AS NVARCHAR(10))
-        + ' base(s) fuera de linea. Iniciando escalera no destructiva.';
+        + ' base(s) dañada(s) (SUSPECT, RECOVERY_PENDING o EMERGENCY). Iniciando escalera no destructiva.';
 
     DECLARE @Db SYSNAME, @State NVARCHAR(60), @SQL NVARCHAR(MAX);
 
     DECLARE BadDbCursor CURSOR LOCAL FAST_FORWARD FOR
         SELECT name, state_desc
         FROM sys.databases
-        WHERE state_desc <> 'ONLINE' AND database_id > 4;
+        WHERE state_desc IN ('SUSPECT', 'RECOVERY_PENDING', 'EMERGENCY') AND database_id > 4;
 
     OPEN BadDbCursor;
     FETCH NEXT FROM BadDbCursor INTO @Db, @State;

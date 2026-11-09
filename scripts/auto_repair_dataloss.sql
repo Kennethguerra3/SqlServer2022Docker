@@ -25,12 +25,35 @@ PRINT '[dataloss] REPARACION DESTRUCTIVA AUTORIZADA POR VARIABLE DE ENTORNO';
 PRINT '[dataloss] Se perderan los datos de las paginas corruptas.';
 PRINT '[dataloss] ############################################################';
 
+-- ----------------------------------------------------------
+-- Las bases en RECOVERING estan haciendo su recuperacion normal
+-- tras un apagado brusco: no estan dañadas. Tocarlas (SET ONLINE,
+-- EMERGENCY, CHECKDB) en ese momento las interrumpe. Esperamos
+-- hasta 5 minutos a que terminen; las que sigan en RECOVERING se
+-- dejan en paz porque no entran en el filtro de abajo.
+-- Solo se reparan estados que SQL Server no resuelve solo:
+-- SUSPECT, RECOVERY_PENDING y EMERGENCY. OFFLINE y RESTORING
+-- suelen ser intencionales y tampoco se tocan.
+-- ----------------------------------------------------------
+DECLARE @EsperaSeg INT = 0;
+WHILE EXISTS (SELECT 1 FROM sys.databases
+              WHERE database_id > 4 AND state_desc = 'RECOVERING')
+      AND @EsperaSeg < 300
+BEGIN
+    IF @EsperaSeg % 30 = 0
+        PRINT '[dataloss] Esperando a que terminen las bases en RECOVERING...';
+    WAITFOR DELAY '00:00:05';
+    SET @EsperaSeg += 5;
+END
+IF EXISTS (SELECT 1 FROM sys.databases WHERE database_id > 4 AND state_desc = 'RECOVERING')
+    PRINT '[dataloss] Aun hay bases en RECOVERING tras 5 min. No se tocan.';
+
 DECLARE @Db SYSNAME, @SQL NVARCHAR(MAX), @BackupFile NVARCHAR(500);
 DECLARE @Stamp NVARCHAR(30) = REPLACE(REPLACE(REPLACE(CONVERT(NVARCHAR(19), GETDATE(), 126), '-', ''), ':', ''), 'T', '_');
 
 DECLARE BadDbCursor CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM sys.databases
-    WHERE state_desc <> 'ONLINE' AND database_id > 4;
+    WHERE state_desc IN ('SUSPECT', 'RECOVERY_PENDING', 'EMERGENCY') AND database_id > 4;
 
 OPEN BadDbCursor;
 FETCH NEXT FROM BadDbCursor INTO @Db;
